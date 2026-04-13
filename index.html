@@ -369,7 +369,7 @@ const APP = {
   autoScrollTimer: null,
   lastScrollIdx: -20,
   // TTS
-  ttsEngine: localStorage.getItem('readaloud_engine') || 'browser',
+  ttsEngine: localStorage.getItem('readaloud_engine') || 'edge',
   voices: [],
   browserVoices: [],
   selectedVoiceId: null,
@@ -393,6 +393,21 @@ const APP = {
     {id:'bf_lily',name:'Lily',gender:'F',accent:'UK',grade:'B'},
     {id:'bm_george',name:'George',gender:'M',accent:'UK',grade:'B'},
     {id:'bm_daniel',name:'Daniel',gender:'M',accent:'UK',grade:'B'},
+  ],
+  // Edge TTS (Microsoft free neural voices)
+  edgeVoices: [
+    {id:'en-US-JennyNeural',name:'Jenny',gender:'F',accent:'US'},
+    {id:'en-US-AriaNeural',name:'Aria',gender:'F',accent:'US'},
+    {id:'en-US-GuyNeural',name:'Guy',gender:'M',accent:'US'},
+    {id:'en-US-DavisNeural',name:'Davis',gender:'M',accent:'US'},
+    {id:'en-US-JaneNeural',name:'Jane',gender:'F',accent:'US'},
+    {id:'en-US-JasonNeural',name:'Jason',gender:'M',accent:'US'},
+    {id:'en-US-SaraNeural',name:'Sara',gender:'F',accent:'US'},
+    {id:'en-US-NancyNeural',name:'Nancy',gender:'F',accent:'US'},
+    {id:'en-US-TonyNeural',name:'Tony',gender:'M',accent:'US'},
+    {id:'en-GB-SoniaNeural',name:'Sonia',gender:'F',accent:'UK'},
+    {id:'en-GB-RyanNeural',name:'Ryan',gender:'M',accent:'UK'},
+    {id:'en-AU-NatashaNeural',name:'Natasha',gender:'F',accent:'AU'},
   ],
   // Settings
   fontSize: 18,
@@ -571,7 +586,7 @@ function createChunks(text) {
   const chunks = [];
   // Smaller chunks for Kokoro (local AI) so each generates in ~3-5s on mobile
   // ElevenLabs can handle 4500 but smaller chunks mean faster first-play for all engines
-  const maxChars = (APP.ttsEngine === 'kokoro') ? 400 : 2000;
+  const maxChars = (APP.ttsEngine === 'kokoro') ? 400 : (APP.ttsEngine === 'edge') ? 3000 : 2000;
   let cur = { text: '', sentences: [], wordCount: 0 };
   for (const s of sentences) {
     const wc = s.split(/\s+/).length;
@@ -655,10 +670,22 @@ function loadBrowserVoices() {
 function populateVoiceSelect() {
   const sel = document.getElementById('voiceSelect');
   sel.innerHTML = '';
-  // Kokoro AI voices (free, natural)
+  // Edge TTS (Microsoft free neural voices - best default)
+  if (APP.ttsEngine === 'edge' || true) {
+    const optE = document.createElement('optgroup');
+    optE.label = 'Neural (Free)';
+    APP.edgeVoices.forEach(v => {
+      const o = document.createElement('option');
+      o.value = 'edge:' + v.id;
+      o.textContent = `${v.name} (${v.gender}, ${v.accent})`;
+      optE.appendChild(o);
+    });
+    sel.appendChild(optE);
+  }
+  // Kokoro AI voices (free, local - desktop only)
   if (APP.ttsEngine === 'kokoro' || APP.kokoroReady) {
     const optK = document.createElement('optgroup');
-    optK.label = 'Kokoro AI (Free)';
+    optK.label = 'Kokoro AI (Desktop)';
     APP.kokoroVoices.forEach(v => {
       const o = document.createElement('option');
       o.value = 'ko:' + v.id;
@@ -702,7 +729,8 @@ function onVoiceChange(val) {
   APP.selectedVoiceId = val;
   localStorage.setItem('readaloud_voice', val);
   // Switch engine based on voice prefix
-  if (val.startsWith('ko:')) { APP.ttsEngine = 'kokoro'; localStorage.setItem('readaloud_engine', 'kokoro'); }
+  if (val.startsWith('edge:')) { APP.ttsEngine = 'edge'; localStorage.setItem('readaloud_engine', 'edge'); }
+  else if (val.startsWith('ko:')) { APP.ttsEngine = 'kokoro'; localStorage.setItem('readaloud_engine', 'kokoro'); }
   else if (val.startsWith('el:')) { APP.ttsEngine = 'elevenlabs'; localStorage.setItem('readaloud_engine', 'elevenlabs'); }
   else if (val.startsWith('br:')) { APP.ttsEngine = 'browser'; localStorage.setItem('readaloud_engine', 'browser'); }
 }
@@ -711,7 +739,11 @@ function onVoiceChange(val) {
    ELEVENLABS PLAYBACK
    ================================================================ */
 async function synthesizeChunk(text) {
-  // Kokoro AI (free, local)
+  // Edge TTS (Microsoft free neural voices)
+  if (APP.ttsEngine === 'edge' || APP.selectedVoiceId?.startsWith('edge:')) {
+    return synthesizeEdgeTTS(text);
+  }
+  // Kokoro AI (free, local - desktop only)
   if (APP.ttsEngine === 'kokoro' || APP.selectedVoiceId?.startsWith('ko:')) {
     return synthesizeKokoro(text);
   }
@@ -770,6 +802,18 @@ async function playChunkElevenLabs(idx) {
       // ElevenLabs quota exceeded -- fall back to browser TTS
       if (msg.includes('quota') || msg.includes('limit') || msg.includes('exceeded') || msg.includes('402') || msg.includes('429')) {
         showToast('ElevenLabs quota exceeded - using built-in voice', 'info', 5000);
+        APP.ttsEngine = 'browser';
+        localStorage.setItem('readaloud_engine', 'browser');
+        loadBrowserVoices();
+        const voices = speechSynthesis.getVoices().filter(v => v.lang.startsWith('en'));
+        if (voices.length) { APP.browserVoices = voices; APP.selectedVoiceId = 'br:0'; }
+        populateVoiceSelect();
+        playChunkBrowser(idx);
+        return;
+      }
+      // Edge TTS failed -- fall back to browser TTS
+      if (msg.includes('EDGE_FAIL')) {
+        showToast('Neural voice unavailable - using built-in voice', 'info', 4000);
         APP.ttsEngine = 'browser';
         localStorage.setItem('readaloud_engine', 'browser');
         loadBrowserVoices();
@@ -1113,18 +1157,28 @@ async function submitURL() {
         }
       }
     } catch(e) { /* server not available, use CORS proxy */ }
-    // Client-side extraction via CORS proxy
-    const proxies = [
-      u => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`,
-      u => `https://corsproxy.io/?${encodeURIComponent(u)}`
-    ];
-    for (const proxyFn of proxies) {
-      try {
-        const r = await fetch(proxyFn(url), { signal: AbortSignal.timeout(12000) });
-        if (r.ok) { html = await r.text(); break; }
-      } catch(e) { continue; }
+    // Client-side extraction: try direct fetch first, then multiple CORS proxies
+    // Direct fetch works if the target site has permissive CORS headers
+    try {
+      const r = await fetch(url, { signal: AbortSignal.timeout(8000), mode: 'cors' });
+      if (r.ok) html = await r.text();
+    } catch(e) { /* CORS blocked, try proxies */ }
+    if (!html) {
+      status.textContent = 'Trying proxy services...';
+      const proxies = [
+        u => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`,
+        u => `https://corsproxy.io/?${encodeURIComponent(u)}`,
+        u => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(u)}`,
+        u => `https://thingproxy.freeboard.io/fetch/${u}`,
+      ];
+      for (const proxyFn of proxies) {
+        try {
+          const r = await fetch(proxyFn(url), { signal: AbortSignal.timeout(10000) });
+          if (r.ok) { html = await r.text(); break; }
+        } catch(e) { continue; }
+      }
     }
-    if (!html) throw new Error('Could not fetch URL. Try pasting the text directly instead.');
+    if (!html) throw new Error('Could not fetch URL (all proxies failed). If on a corporate network, try from your phone or paste the text directly.');
     // Extract title
     const titleMatch = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
     const title = titleMatch ? titleMatch[1].replace(/\s+/g, ' ').trim() : '';
@@ -1352,17 +1406,16 @@ function showSettings() {
     <div class="settings-panel">
       <div class="settings-group">
         <h3>Voice Engine</h3>
-        <p style="font-size:13px;color:var(--text2);margin-bottom:12px;line-height:1.5">Choose how text is spoken. Kokoro AI is free with natural-sounding voices. ElevenLabs requires a paid API key.</p>
+        <p style="font-size:13px;color:var(--text2);margin-bottom:12px;line-height:1.5">Neural voices are free, natural-sounding Microsoft voices. No account or API key needed.</p>
         <div class="settings-row">
           <label>Engine</label>
           <select onchange="switchEngine(this.value)" style="max-width:200px">
-            <option value="kokoro" ${APP.ttsEngine==='kokoro'?'selected':''}>Kokoro AI (Free)</option>
+            <option value="edge" ${APP.ttsEngine==='edge'?'selected':''}>Neural (Free)</option>
+            <option value="kokoro" ${APP.ttsEngine==='kokoro'?'selected':''}>Kokoro AI (Desktop)</option>
             ${APP.elevenLabsAvailable ? `<option value="elevenlabs" ${APP.ttsEngine==='elevenlabs'?'selected':''}>ElevenLabs</option>` : ''}
             <option value="browser" ${APP.ttsEngine==='browser'?'selected':''}>Built-in</option>
           </select>
         </div>
-        <div style="margin-top:8px;font-size:12px;color:var(--text3)">Kokoro: ${kokoroStatus}</div>
-        ${!APP.kokoroReady && !APP.kokoroLoading ? `<button onclick="loadKokoro();showSettings()" style="margin-top:8px;padding:10px 20px;background:var(--accent);color:#fff;border-radius:8px;font-weight:600;font-size:13px">Pre-load Model Now</button>` : ''}
       </div>
       <div class="settings-group">
         <h3>ElevenLabs API Key (Optional)</h3>
@@ -1487,6 +1540,71 @@ function loadScript(src) {
 }
 
 /* ================================================================
+   EDGE TTS ENGINE (Microsoft free neural voices via WebSocket)
+   ================================================================ */
+const EDGE_TTS_TOKEN = '6A5AA1D4EAFF4E9FB37E23D68491D6F4';
+const EDGE_TTS_WS = `wss://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1?TrustedClientToken=${EDGE_TTS_TOKEN}`;
+
+function escapeXml(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+async function synthesizeEdgeTTS(text) {
+  const voice = (APP.selectedVoiceId || 'edge:en-US-JennyNeural').replace('edge:', '');
+  return new Promise((resolve, reject) => {
+    let ws;
+    try { ws = new WebSocket(EDGE_TTS_WS); } catch(e) { reject(new Error('EDGE_FAIL')); return; }
+    ws.binaryType = 'arraybuffer';
+    const audioChunks = [];
+    const requestId = Array.from(crypto.getRandomValues(new Uint8Array(16))).map(b=>b.toString(16).padStart(2,'0')).join('');
+    let resolved = false;
+
+    const finish = () => {
+      if (resolved) return;
+      resolved = true;
+      if (audioChunks.length > 0) {
+        resolve(URL.createObjectURL(new Blob(audioChunks, { type: 'audio/mp3' })));
+      } else {
+        reject(new Error('EDGE_FAIL'));
+      }
+    };
+
+    ws.onopen = () => {
+      // Send config
+      ws.send(`Content-Type:application/json; charset=utf-8\r\nPath:speech.config\r\n\r\n{"context":{"synthesis":{"audio":{"metadataoptions":{"sentenceBoundaryEnabled":"false","wordBoundaryEnabled":"true"},"outputFormat":"audio-24khz-48kbitrate-mono-mp3"}}}}`);
+      // Send SSML
+      const ssml = `<speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' xml:lang='en-US'><voice name='${voice}'>${escapeXml(text)}</voice></speak>`;
+      ws.send(`X-RequestId:${requestId}\r\nContent-Type:application/ssml+xml\r\nPath:ssml\r\n\r\n${ssml}`);
+    };
+
+    ws.onmessage = (event) => {
+      if (event.data instanceof ArrayBuffer) {
+        // Binary message: 2-byte header length, then header text, then audio
+        const view = new DataView(event.data);
+        if (event.data.byteLength < 2) return;
+        const headerLen = view.getUint16(0);
+        const audioStart = 2 + headerLen;
+        if (audioStart < event.data.byteLength) {
+          audioChunks.push(event.data.slice(audioStart));
+        }
+      } else if (typeof event.data === 'string') {
+        if (event.data.includes('Path:turn.end')) {
+          try { ws.close(); } catch(e) {}
+          finish();
+        }
+      }
+    };
+
+    ws.onerror = () => {
+      if (!resolved) { resolved = true; reject(new Error('EDGE_FAIL')); }
+    };
+    ws.onclose = () => finish();
+    // 20 second timeout
+    setTimeout(() => {
+      if (!resolved) { try { ws.close(); } catch(e) {} resolved = true; reject(new Error('EDGE_FAIL')); }
+    }, 20000);
+  });
+}
+
+/* ================================================================
    KOKORO TTS ENGINE
    ================================================================ */
 async function loadKokoro(showUI = true) {
@@ -1594,7 +1712,7 @@ function float32ToWav(samples, sampleRate) {
 }
 
 function usesAudioElement() {
-  return APP.ttsEngine === 'kokoro' || (APP.ttsEngine === 'elevenlabs' && APP.selectedVoiceId?.startsWith('el:'));
+  return APP.ttsEngine === 'edge' || APP.ttsEngine === 'kokoro' || (APP.ttsEngine === 'elevenlabs' && APP.selectedVoiceId?.startsWith('el:'));
 }
 
 /* ================================================================
