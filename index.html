@@ -49,7 +49,7 @@ select{cursor:pointer;appearance:none;background-image:url("data:image/svg+xml,%
 .lib-delete{position:absolute;right:8px;top:50%;transform:translateY(-50%);opacity:0;font-size:16px;color:var(--text3);width:24px;height:24px;display:flex;align-items:center;justify-content:center;border-radius:4px;transition:var(--transition)}
 .library-item:hover .lib-delete{opacity:1}
 .lib-delete:hover{color:var(--red);background:rgba(239,68,68,.15)}
-.sidebar-footer{padding:16px;border-top:1px solid var(--border)}
+.sidebar-footer{padding:16px;padding-bottom:calc(16px + env(safe-area-inset-bottom,0px));border-top:1px solid var(--border)}
 .sidebar-footer button{width:100%;padding:10px;border-radius:8px;font-size:13px;color:var(--text2);display:flex;align-items:center;gap:8px;transition:var(--transition)}
 .sidebar-footer button:hover{background:var(--bg-card);color:var(--text)}
 
@@ -66,7 +66,7 @@ select{cursor:pointer;appearance:none;background-image:url("data:image/svg+xml,%
 .content{flex:1;overflow-y:auto;padding-bottom:var(--player-h)}
 
 /* Welcome */
-.welcome{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;text-align:center;padding:40px 20px}
+.welcome{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;text-align:center;padding:40px 20px calc(40px + env(safe-area-inset-bottom,0px))}
 .welcome-icon{font-size:64px;margin-bottom:24px;opacity:.8}
 .welcome h2{font-size:28px;font-weight:700;margin-bottom:12px}
 .welcome p{color:var(--text2);font-size:16px;max-width:440px;line-height:1.6;margin-bottom:32px}
@@ -122,7 +122,7 @@ select{cursor:pointer;appearance:none;background-image:url("data:image/svg+xml,%
 .import-tab{padding:12px 16px;font-size:13px;font-weight:600;color:var(--text3);border-bottom:2px solid transparent;transition:var(--transition)}
 .import-tab:hover{color:var(--text2)}
 .import-tab.active{color:var(--accent);border-bottom-color:var(--accent)}
-.import-body{padding:24px;overflow-y:auto;flex:1}
+.import-body{padding:24px;padding-bottom:calc(24px + env(safe-area-inset-bottom,0px));overflow-y:auto;flex:1}
 .import-panel{display:none}
 .import-panel.active{display:block}
 .import-panel textarea{min-height:180px;resize:vertical;font-size:14px;line-height:1.6}
@@ -152,7 +152,7 @@ select{cursor:pointer;appearance:none;background-image:url("data:image/svg+xml,%
 .ocr-bar-fill{height:100%;background:var(--accent);width:0%;transition:width .3s}
 
 /* Settings panel */
-.settings-panel{padding:24px}
+.settings-panel{padding:24px;padding-bottom:calc(24px + env(safe-area-inset-bottom,0px))}
 .settings-group{margin-bottom:24px}
 .settings-group h3{font-size:14px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px}
 .settings-row{display:flex;align-items:center;justify-content:space-between;padding:12px 0;border-bottom:1px solid var(--border)}
@@ -188,6 +188,15 @@ select{cursor:pointer;appearance:none;background-image:url("data:image/svg+xml,%
   .modal{max-width:100%;max-height:95vh;border-radius:12px}
   .welcome h2{font-size:22px}
   .welcome-grid{grid-template-columns:repeat(2,1fr)}
+  .sidebar-footer button{padding:14px;font-size:15px}
+  .import-submit{padding:16px 24px;font-size:16px}
+  .modal-close{width:44px;height:44px;font-size:24px}
+  .import-tab{padding:14px 16px;font-size:14px}
+  .library-item{padding:14px 12px}
+  .new-btn{padding:14px;font-size:15px}
+  .settings-row{padding:16px 0}
+  .settings-row label{font-size:15px}
+  .topbar{height:52px;min-height:52px;padding:0 16px}
 
   /* Player bar - completely redesigned for mobile */
   .player-bar{height:auto;padding-bottom:env(safe-area-inset-bottom,16px)}
@@ -695,7 +704,30 @@ async function playChunkElevenLabs(idx) {
   if (!url) {
     showPlayLoading(true);
     try { url = await synthesizeChunk(APP.chunks[idx].text); }
-    catch(e) { showToast('TTS error: ' + e.message, 'error'); stopPlayback(); return; }
+    catch(e) {
+      showPlayLoading(false);
+      const msg = e.message || '';
+      // Auto-fallback to browser TTS on quota/billing errors
+      if (msg.includes('quota') || msg.includes('limit') || msg.includes('exceeded') || msg.includes('402') || msg.includes('429')) {
+        showToast('ElevenLabs quota exceeded - switching to built-in voice', 'info', 5000);
+        APP.ttsEngine = 'browser';
+        loadBrowserVoices();
+        // Auto-select a browser voice if none selected
+        if (!APP.selectedVoiceId || APP.selectedVoiceId.startsWith('el:')) {
+          const voices = speechSynthesis.getVoices().filter(v => v.lang.startsWith('en'));
+          if (voices.length) {
+            APP.browserVoices = voices;
+            APP.selectedVoiceId = 'br:0';
+            populateVoiceSelect();
+          }
+        }
+        playChunkBrowser(idx);
+        return;
+      }
+      showToast('TTS error: ' + msg, 'error');
+      stopPlayback();
+      return;
+    }
     finally { showPlayLoading(false); }
     APP.audioCache[idx] = url;
   }
