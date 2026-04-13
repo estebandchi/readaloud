@@ -365,12 +365,31 @@ const APP = {
   autoScrollTimer: null,
   lastScrollIdx: -20,
   // TTS
-  ttsEngine: 'browser',
+  ttsEngine: localStorage.getItem('readaloud_engine') || 'kokoro',
   voices: [],
   browserVoices: [],
   selectedVoiceId: null,
   elevenLabsAvailable: false,
   elevenLabsKey: localStorage.getItem('readaloud_el_key') || '',
+  // Kokoro
+  kokoroModel: null,
+  kokoroLoading: false,
+  kokoroReady: false,
+  kokoroVoices: [
+    {id:'af_heart',name:'Heart',gender:'F',accent:'US',grade:'A'},
+    {id:'af_bella',name:'Bella',gender:'F',accent:'US',grade:'A'},
+    {id:'af_nova',name:'Nova',gender:'F',accent:'US',grade:'B'},
+    {id:'af_sarah',name:'Sarah',gender:'F',accent:'US',grade:'B'},
+    {id:'af_nicole',name:'Nicole',gender:'F',accent:'US',grade:'B'},
+    {id:'af_sky',name:'Sky',gender:'F',accent:'US',grade:'B'},
+    {id:'am_adam',name:'Adam',gender:'M',accent:'US',grade:'B'},
+    {id:'am_michael',name:'Michael',gender:'M',accent:'US',grade:'B'},
+    {id:'am_eric',name:'Eric',gender:'M',accent:'US',grade:'B'},
+    {id:'bf_emma',name:'Emma',gender:'F',accent:'UK',grade:'B'},
+    {id:'bf_lily',name:'Lily',gender:'F',accent:'UK',grade:'B'},
+    {id:'bm_george',name:'George',gender:'M',accent:'UK',grade:'B'},
+    {id:'bm_daniel',name:'Daniel',gender:'M',accent:'UK',grade:'B'},
+  ],
   // Settings
   fontSize: 18,
   // UI
@@ -629,8 +648,20 @@ function loadBrowserVoices() {
 function populateVoiceSelect() {
   const sel = document.getElementById('voiceSelect');
   sel.innerHTML = '';
-  if (APP.ttsEngine === 'elevenlabs' && APP.voices.length) {
-    // ElevenLabs header
+  // Kokoro AI voices (free, natural)
+  if (APP.ttsEngine === 'kokoro' || APP.kokoroReady) {
+    const optK = document.createElement('optgroup');
+    optK.label = 'Kokoro AI (Free)';
+    APP.kokoroVoices.forEach(v => {
+      const o = document.createElement('option');
+      o.value = 'ko:' + v.id;
+      o.textContent = `${v.name} (${v.gender}, ${v.accent})`;
+      optK.appendChild(o);
+    });
+    sel.appendChild(optK);
+  }
+  // ElevenLabs
+  if (APP.elevenLabsAvailable && APP.voices.length) {
     const optE = document.createElement('optgroup');
     optE.label = 'ElevenLabs';
     const premade = APP.voices.filter(v => v.category === 'premade' || v.category === 'professional');
@@ -663,12 +694,21 @@ function populateVoiceSelect() {
 function onVoiceChange(val) {
   APP.selectedVoiceId = val;
   localStorage.setItem('readaloud_voice', val);
+  // Switch engine based on voice prefix
+  if (val.startsWith('ko:')) { APP.ttsEngine = 'kokoro'; localStorage.setItem('readaloud_engine', 'kokoro'); }
+  else if (val.startsWith('el:')) { APP.ttsEngine = 'elevenlabs'; localStorage.setItem('readaloud_engine', 'elevenlabs'); }
+  else if (val.startsWith('br:')) { APP.ttsEngine = 'browser'; localStorage.setItem('readaloud_engine', 'browser'); }
 }
 
 /* ================================================================
    ELEVENLABS PLAYBACK
    ================================================================ */
 async function synthesizeChunk(text) {
+  // Kokoro AI (free, local)
+  if (APP.ttsEngine === 'kokoro' || APP.selectedVoiceId?.startsWith('ko:')) {
+    return synthesizeKokoro(text);
+  }
+  // ElevenLabs (cloud)
   const voiceId = APP.selectedVoiceId.replace('el:', '');
   const body = JSON.stringify({
     text,
@@ -806,7 +846,7 @@ function togglePlay() {
 }
 function play() {
   if (!APP.chunks.length) return;
-  if (APP.ttsEngine === 'elevenlabs' && APP.selectedVoiceId && APP.selectedVoiceId.startsWith('el:')) {
+  if (usesAudioElement()) {
     playChunkElevenLabs(APP.currentChunkIdx);
   } else {
     playChunkBrowser(APP.currentChunkIdx);
@@ -846,7 +886,7 @@ function skipForward() {
     APP.audioCache = APP.audioCache; // keep cache
     if (APP.isPlaying) {
       APP.currentChunkIdx++;
-      if (APP.ttsEngine === 'elevenlabs' && APP.selectedVoiceId?.startsWith('el:')) playChunkElevenLabs(APP.currentChunkIdx);
+      if (usesAudioElement()) playChunkElevenLabs(APP.currentChunkIdx);
       else playChunkBrowser(APP.currentChunkIdx);
     } else {
       APP.currentChunkIdx++;
@@ -860,7 +900,7 @@ function skipBack() {
   if (APP.currentChunkIdx > 0) {
     APP.currentChunkIdx--;
     if (APP.isPlaying) {
-      if (APP.ttsEngine === 'elevenlabs' && APP.selectedVoiceId?.startsWith('el:')) playChunkElevenLabs(APP.currentChunkIdx);
+      if (usesAudioElement()) playChunkElevenLabs(APP.currentChunkIdx);
       else playChunkBrowser(APP.currentChunkIdx);
     } else {
       highlightWord(APP.chunkWordStarts[APP.currentChunkIdx]);
@@ -877,7 +917,7 @@ function seekToWord(globalIdx) {
   }
   APP.currentChunkIdx = targetChunk;
   if (APP.isPlaying) {
-    if (APP.ttsEngine === 'elevenlabs' && APP.selectedVoiceId?.startsWith('el:')) playChunkElevenLabs(targetChunk);
+    if (usesAudioElement()) playChunkElevenLabs(targetChunk);
     else playChunkBrowser(targetChunk);
   } else {
     highlightWord(globalIdx);
@@ -944,7 +984,7 @@ function startHighlightLoop() {
   const loop = () => {
     if (!APP.isPlaying) return;
     let currentTime = 0;
-    if (APP.audio && APP.ttsEngine === 'elevenlabs' && APP.selectedVoiceId?.startsWith('el:')) {
+    if (APP.audio && usesAudioElement()) {
       currentTime = APP.audio.currentTime;
     } else if (APP.utterance) {
       // For browser TTS, estimate time (onboundary handles highlighting directly)
@@ -1291,27 +1331,32 @@ function showSettings() {
   APP.view = 'settings';
   document.getElementById('topTitle').textContent = 'Settings';
   document.getElementById('playerBar').classList.add('hidden');
-  const engineOptions = APP.elevenLabsAvailable
-    ? `<option value="elevenlabs" ${APP.ttsEngine==='elevenlabs'?'selected':''}>ElevenLabs (Cloud)</option><option value="browser" ${APP.ttsEngine==='browser'?'selected':''}>Built-in (Free)</option>`
-    : `<option value="browser" selected>Built-in (Free)</option>`;
   const keyMasked = APP.elevenLabsKey ? APP.elevenLabsKey.slice(0,8) + '...' + APP.elevenLabsKey.slice(-4) : '';
+  const kokoroStatus = APP.kokoroReady ? 'Model loaded' : (APP.kokoroLoading ? 'Loading...' : 'Not loaded yet (downloads on first play)');
   document.getElementById('contentArea').innerHTML = `
     <div class="settings-panel">
       <div class="settings-group">
-        <h3>ElevenLabs API Key</h3>
-        <p style="font-size:13px;color:var(--text2);margin-bottom:12px;line-height:1.5">Enter your API key for human-like voices. Get a free key at <a href="https://elevenlabs.io" target="_blank">elevenlabs.io</a> (Profile > API Keys). The key is stored locally on this device only.</p>
+        <h3>Voice Engine</h3>
+        <p style="font-size:13px;color:var(--text2);margin-bottom:12px;line-height:1.5">Choose how text is spoken. Kokoro AI is free with natural-sounding voices. ElevenLabs requires a paid API key.</p>
+        <div class="settings-row">
+          <label>Engine</label>
+          <select onchange="switchEngine(this.value)" style="max-width:200px">
+            <option value="kokoro" ${APP.ttsEngine==='kokoro'?'selected':''}>Kokoro AI (Free)</option>
+            ${APP.elevenLabsAvailable ? `<option value="elevenlabs" ${APP.ttsEngine==='elevenlabs'?'selected':''}>ElevenLabs</option>` : ''}
+            <option value="browser" ${APP.ttsEngine==='browser'?'selected':''}>Built-in</option>
+          </select>
+        </div>
+        <div style="margin-top:8px;font-size:12px;color:var(--text3)">Kokoro: ${kokoroStatus}</div>
+        ${!APP.kokoroReady && !APP.kokoroLoading ? `<button onclick="loadKokoro();showSettings()" style="margin-top:8px;padding:10px 20px;background:var(--accent);color:#fff;border-radius:8px;font-weight:600;font-size:13px">Pre-load Model Now</button>` : ''}
+      </div>
+      <div class="settings-group">
+        <h3>ElevenLabs API Key (Optional)</h3>
+        <p style="font-size:13px;color:var(--text2);margin-bottom:12px;line-height:1.5">For ElevenLabs voices. Get a key at <a href="https://elevenlabs.io" target="_blank">elevenlabs.io</a>. Stored locally on this device only.</p>
         <div style="display:flex;gap:8px">
           <input id="elKeyInput" type="password" placeholder="sk_..." value="${APP.elevenLabsKey}" style="flex:1;font-size:13px;font-family:monospace">
           <button onclick="saveElevenLabsKey()" style="padding:10px 20px;background:var(--accent);color:#fff;border-radius:8px;font-weight:600;font-size:13px;white-space:nowrap">Save Key</button>
         </div>
         ${APP.elevenLabsKey ? `<div style="margin-top:8px;font-size:12px;color:var(--accent)">Key configured: ${keyMasked}</div>` : ''}
-      </div>
-      <div class="settings-group">
-        <h3>Voice Engine</h3>
-        <div class="settings-row">
-          <label>TTS Engine</label>
-          <select onchange="APP.ttsEngine=this.value;populateVoiceSelect()">${engineOptions}</select>
-        </div>
       </div>
       <div class="settings-group">
         <h3>Reader</h3>
@@ -1337,6 +1382,14 @@ function showSettings() {
       </div>
     </div>`;
   if (APP.sidebarOpen && window.innerWidth <= 768) toggleSidebar();
+}
+function switchEngine(val) {
+  APP.ttsEngine = val;
+  localStorage.setItem('readaloud_engine', val);
+  populateVoiceSelect();
+  // Auto-select first voice for the engine
+  const sel = document.getElementById('voiceSelect');
+  if (sel.options.length) { sel.selectedIndex = 0; onVoiceChange(sel.value); }
 }
 async function saveElevenLabsKey() {
   const key = document.getElementById('elKeyInput').value.trim();
@@ -1419,6 +1472,80 @@ function loadScript(src) {
 }
 
 /* ================================================================
+   KOKORO TTS ENGINE
+   ================================================================ */
+async function loadKokoro(showUI = true) {
+  if (APP.kokoroModel) return APP.kokoroModel;
+  if (APP.kokoroLoading) {
+    // Wait for existing load
+    while (APP.kokoroLoading) await new Promise(r => setTimeout(r, 200));
+    return APP.kokoroModel;
+  }
+  APP.kokoroLoading = true;
+  if (showUI) showToast('Loading AI voice model (~92 MB, one-time download)...', 'info', 8000);
+  try {
+    const { KokoroTTS } = await import('https://cdn.jsdelivr.net/npm/kokoro-js@1.1.1/+esm');
+    APP.kokoroModel = await KokoroTTS.from_pretrained('onnx-community/Kokoro-82M-v1.0-ONNX', {
+      dtype: 'q8',
+      device: 'wasm',
+    });
+    APP.kokoroReady = true;
+    if (showUI) showToast('AI voice model ready!', 'success');
+    return APP.kokoroModel;
+  } catch(e) {
+    console.error('Kokoro load failed:', e);
+    if (showUI) showToast('AI voice failed to load, using built-in voice', 'error', 5000);
+    APP.ttsEngine = 'browser';
+    localStorage.setItem('readaloud_engine', 'browser');
+    loadBrowserVoices();
+    return null;
+  } finally {
+    APP.kokoroLoading = false;
+  }
+}
+
+async function synthesizeKokoro(text) {
+  const model = await loadKokoro();
+  if (!model) throw new Error('Kokoro model not available');
+  const voiceId = (APP.selectedVoiceId || 'ko:af_heart').replace('ko:', '');
+  const result = await model.generate(text, { voice: voiceId });
+  // Convert Float32Array audio to WAV blob
+  const samples = result.audio;
+  const sr = result.sampling_rate || 24000;
+  const wavBlob = float32ToWav(samples, sr);
+  return URL.createObjectURL(wavBlob);
+}
+
+function float32ToWav(samples, sampleRate) {
+  const len = samples.length;
+  const buffer = new ArrayBuffer(44 + len * 2);
+  const v = new DataView(buffer);
+  const writeStr = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
+  writeStr(0, 'RIFF');
+  v.setUint32(4, 36 + len * 2, true);
+  writeStr(8, 'WAVE');
+  writeStr(12, 'fmt ');
+  v.setUint32(16, 16, true);
+  v.setUint16(20, 1, true);
+  v.setUint16(22, 1, true);
+  v.setUint32(24, sampleRate, true);
+  v.setUint32(28, sampleRate * 2, true);
+  v.setUint16(32, 2, true);
+  v.setUint16(34, 16, true);
+  writeStr(36, 'data');
+  v.setUint32(40, len * 2, true);
+  for (let i = 0; i < len; i++) {
+    const s = Math.max(-1, Math.min(1, samples[i]));
+    v.setInt16(44 + i * 2, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+  }
+  return new Blob([buffer], { type: 'audio/wav' });
+}
+
+function usesAudioElement() {
+  return APP.ttsEngine === 'kokoro' || (APP.ttsEngine === 'elevenlabs' && APP.selectedVoiceId?.startsWith('el:'));
+}
+
+/* ================================================================
    PWA
    ================================================================ */
 if ('serviceWorker' in navigator) {
@@ -1433,8 +1560,10 @@ document.addEventListener('DOMContentLoaded', () => {
   renderSidebar();
   showWelcome();
   setupDropZone();
-  fetchElevenLabsVoices();
+  // Populate voices - Kokoro is default (free, natural)
+  populateVoiceSelect();
   loadBrowserVoices();
+  fetchElevenLabsVoices();
 });
 </script>
 </body>
