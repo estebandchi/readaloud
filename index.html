@@ -1,0 +1,1348 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#0f172a">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="ReadAloud">
+<link rel="manifest" href="/manifest-readaloud.json">
+<title>ReadAloud</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --bg:#0f172a;--bg-dark:#070d18;--bg-card:#1e293b;--bg-card-hover:#334155;
+  --bg-input:#0e1729;--border:#2d3a4f;--border-light:#3d4f6a;
+  --accent:#14b8a6;--accent-hover:#0d9488;--accent-bg:rgba(20,184,166,.12);
+  --accent-strong:rgba(20,184,166,.35);--blue:#3b82f6;--red:#ef4444;--amber:#f59e0b;
+  --text:#f1f5f9;--text2:#94a3b8;--text3:#64748b;
+  --sidebar-w:280px;--player-h:88px;
+  --font:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+  --radius:10px;--transition:all .2s ease;
+}
+html,body{height:100%;font-family:var(--font);background:var(--bg);color:var(--text);overflow:hidden}
+a{color:var(--blue);text-decoration:none}
+button{font-family:var(--font);cursor:pointer;border:none;background:none;color:var(--text)}
+input,textarea,select{font-family:var(--font);color:var(--text);background:var(--bg-input);border:1px solid var(--border);border-radius:8px;padding:10px 14px;outline:none;width:100%}
+input:focus,textarea:focus,select:focus{border-color:var(--accent)}
+select{cursor:pointer;appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='%2394a3b8'%3E%3Cpath d='M6 8L1 3h10z'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 12px center}
+::-webkit-scrollbar{width:6px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
+
+/* Layout */
+.app{display:flex;height:100vh;overflow:hidden}
+.sidebar-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:90}
+.sidebar{width:var(--sidebar-w);min-width:var(--sidebar-w);background:var(--bg-dark);border-right:1px solid var(--border);display:flex;flex-direction:column;z-index:100;height:100vh}
+.sidebar-header{padding:20px;display:flex;align-items:center;gap:12px}
+.sidebar-header svg{width:32px;height:32px;color:var(--accent)}
+.sidebar-header span{font-size:18px;font-weight:700;letter-spacing:-.3px}
+.new-btn{margin:0 16px 12px;padding:12px;background:var(--accent);color:#fff;border-radius:8px;font-weight:600;font-size:14px;display:flex;align-items:center;justify-content:center;gap:8px;transition:var(--transition)}
+.new-btn:hover{background:var(--accent-hover)}
+.library-list{flex:1;overflow-y:auto;padding:0 8px}
+.library-item{display:flex;align-items:center;gap:12px;padding:12px;border-radius:8px;cursor:pointer;transition:var(--transition);margin-bottom:2px;position:relative}
+.library-item:hover,.library-item.active{background:var(--bg-card)}
+.library-item.active{border-left:3px solid var(--accent)}
+.lib-icon{width:36px;height:36px;border-radius:8px;background:var(--bg-card);display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0}
+.lib-info{flex:1;min-width:0}
+.lib-title{font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lib-meta{font-size:11px;color:var(--text3);margin-top:2px}
+.lib-delete{position:absolute;right:8px;top:50%;transform:translateY(-50%);opacity:0;font-size:16px;color:var(--text3);width:24px;height:24px;display:flex;align-items:center;justify-content:center;border-radius:4px;transition:var(--transition)}
+.library-item:hover .lib-delete{opacity:1}
+.lib-delete:hover{color:var(--red);background:rgba(239,68,68,.15)}
+.sidebar-footer{padding:16px;border-top:1px solid var(--border)}
+.sidebar-footer button{width:100%;padding:10px;border-radius:8px;font-size:13px;color:var(--text2);display:flex;align-items:center;gap:8px;transition:var(--transition)}
+.sidebar-footer button:hover{background:var(--bg-card);color:var(--text)}
+
+/* Main */
+.main{flex:1;display:flex;flex-direction:column;min-width:0;position:relative}
+.topbar{height:56px;min-height:56px;display:flex;align-items:center;padding:0 20px;gap:12px;border-bottom:1px solid var(--border);background:var(--bg)}
+.hamburger{display:none;width:36px;height:36px;align-items:center;justify-content:center;border-radius:8px}
+.hamburger:hover{background:var(--bg-card)}
+.hamburger svg{width:20px;height:20px;color:var(--text2)}
+.topbar h1{font-size:16px;font-weight:600;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.topbar-actions{display:flex;align-items:center;gap:8px}
+
+/* Content */
+.content{flex:1;overflow-y:auto;padding-bottom:var(--player-h)}
+
+/* Welcome */
+.welcome{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;text-align:center;padding:40px 20px}
+.welcome-icon{font-size:64px;margin-bottom:24px;opacity:.8}
+.welcome h2{font-size:28px;font-weight:700;margin-bottom:12px}
+.welcome p{color:var(--text2);font-size:16px;max-width:440px;line-height:1.6;margin-bottom:32px}
+.welcome-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;max-width:520px;width:100%}
+.welcome-card{padding:24px 16px;border-radius:var(--radius);border:1px solid var(--border);background:var(--bg-card);cursor:pointer;transition:var(--transition);display:flex;flex-direction:column;align-items:center;gap:10px}
+.welcome-card:hover{border-color:var(--accent);background:var(--accent-bg);transform:translateY(-2px)}
+.welcome-card svg{width:28px;height:28px;color:var(--accent)}
+.welcome-card span{font-size:13px;font-weight:600}
+
+/* Reader */
+.reader{max-width:760px;margin:0 auto;padding:40px 32px 20px}
+.reader-text{font-size:18px;line-height:1.9;color:var(--text)}
+.reader-text p{margin-bottom:1.2em}
+.word{border-radius:3px;padding:1px 2px;margin:-1px -2px;transition:background .12s ease}
+.word.active{background:var(--accent-strong);color:#fff}
+.word.upcoming{background:var(--accent-bg)}
+.word:hover{cursor:pointer;background:rgba(255,255,255,.08)}
+.reader-loading{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:80px 20px;color:var(--text2)}
+.reader-loading .spinner{width:40px;height:40px;border:3px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite;margin-bottom:16px}
+
+/* Player */
+.player-bar{position:absolute;bottom:0;left:0;right:0;height:var(--player-h);background:rgba(7,13,24,.96);backdrop-filter:blur(16px);border-top:1px solid var(--border);display:flex;flex-direction:column;z-index:50}
+.player-bar.hidden{display:none}
+.progress-track{height:4px;background:var(--bg-card);cursor:pointer;flex-shrink:0}
+.progress-fill{height:100%;background:var(--accent);width:0%;transition:width .3s linear;border-radius:0 2px 2px 0}
+.player-controls{flex:1;display:flex;align-items:center;padding:0 20px;gap:12px}
+.player-left,.player-right{display:flex;align-items:center;gap:10px;min-width:140px}
+.player-right{justify-content:flex-end}
+.player-center{flex:1;display:flex;align-items:center;justify-content:center;gap:8px}
+.time-label{font-size:12px;color:var(--text3);font-variant-numeric:tabular-nums;min-width:40px}
+.time-label.right{text-align:right}
+.play-btn{width:48px;height:48px;border-radius:50%;background:var(--accent);display:flex;align-items:center;justify-content:center;transition:var(--transition);flex-shrink:0}
+.play-btn:hover{background:var(--accent-hover);transform:scale(1.05)}
+.play-btn:disabled{opacity:.4;cursor:not-allowed;transform:none}
+.play-btn svg{width:22px;height:22px;color:#fff;margin-left:2px}
+.play-btn.playing svg{margin-left:0}
+.skip-btn{width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:var(--text2);transition:var(--transition)}
+.skip-btn:hover{background:var(--bg-card);color:var(--text)}
+.skip-btn svg{width:18px;height:18px}
+.speed-btn{padding:4px 10px;border-radius:6px;font-size:13px;font-weight:700;color:var(--accent);background:var(--accent-bg);transition:var(--transition);min-width:44px}
+.speed-btn:hover{background:var(--accent-strong)}
+.voice-sel{max-width:130px;font-size:12px;padding:6px 28px 6px 10px;background:var(--bg-card);border-color:var(--border)}
+
+/* Import Modal */
+.modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:200;align-items:center;justify-content:center;padding:20px}
+.modal-overlay.show{display:flex}
+.modal{background:var(--bg);border:1px solid var(--border);border-radius:16px;width:100%;max-width:560px;max-height:85vh;display:flex;flex-direction:column;overflow:hidden}
+.modal-header{display:flex;align-items:center;justify-content:space-between;padding:20px 24px;border-bottom:1px solid var(--border)}
+.modal-header h2{font-size:18px;font-weight:700}
+.modal-close{width:32px;height:32px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:20px;color:var(--text3);transition:var(--transition)}
+.modal-close:hover{background:var(--bg-card);color:var(--text)}
+.import-tabs{display:flex;padding:0 24px;gap:4px;border-bottom:1px solid var(--border)}
+.import-tab{padding:12px 16px;font-size:13px;font-weight:600;color:var(--text3);border-bottom:2px solid transparent;transition:var(--transition)}
+.import-tab:hover{color:var(--text2)}
+.import-tab.active{color:var(--accent);border-bottom-color:var(--accent)}
+.import-body{padding:24px;overflow-y:auto;flex:1}
+.import-panel{display:none}
+.import-panel.active{display:block}
+.import-panel textarea{min-height:180px;resize:vertical;font-size:14px;line-height:1.6}
+.import-panel .title-input{margin-bottom:12px}
+.import-submit{margin-top:16px;padding:12px 24px;background:var(--accent);color:#fff;border-radius:8px;font-weight:600;font-size:14px;width:100%;transition:var(--transition)}
+.import-submit:hover{background:var(--accent-hover)}
+.import-submit:disabled{opacity:.4;cursor:not-allowed}
+
+/* Drop zone */
+.drop-zone{border:2px dashed var(--border);border-radius:12px;padding:48px 24px;text-align:center;cursor:pointer;transition:var(--transition)}
+.drop-zone:hover,.drop-zone.drag-over{border-color:var(--accent);background:var(--accent-bg)}
+.drop-zone svg{width:40px;height:40px;color:var(--text3);margin-bottom:12px}
+.drop-zone p{color:var(--text2);font-size:14px;margin-bottom:4px}
+.drop-zone .small{font-size:12px;color:var(--text3)}
+.drop-zone .browse-btn{display:inline-block;margin-top:12px;padding:8px 20px;background:var(--bg-card);border-radius:8px;font-size:13px;font-weight:600;color:var(--text);border:1px solid var(--border);transition:var(--transition)}
+.drop-zone .browse-btn:hover{border-color:var(--accent);color:var(--accent)}
+
+/* OCR */
+.camera-area{position:relative;border-radius:12px;overflow:hidden;background:#000;min-height:240px;margin-bottom:16px}
+.camera-area video{width:100%;display:block}
+.camera-area canvas{display:none}
+.ocr-actions{display:flex;gap:12px}
+.ocr-actions button{flex:1;padding:12px;border-radius:8px;font-weight:600;font-size:14px;border:1px solid var(--border);background:var(--bg-card);transition:var(--transition)}
+.ocr-actions button:hover{border-color:var(--accent);color:var(--accent)}
+.ocr-progress{margin-top:16px;text-align:center;color:var(--text2);font-size:13px}
+.ocr-bar{height:6px;background:var(--bg-card);border-radius:3px;margin-top:8px;overflow:hidden}
+.ocr-bar-fill{height:100%;background:var(--accent);width:0%;transition:width .3s}
+
+/* Settings panel */
+.settings-panel{padding:24px}
+.settings-group{margin-bottom:24px}
+.settings-group h3{font-size:14px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px}
+.settings-row{display:flex;align-items:center;justify-content:space-between;padding:12px 0;border-bottom:1px solid var(--border)}
+.settings-row label{font-size:14px}
+.settings-row select,.settings-row input[type=range]{max-width:180px}
+.settings-row input[type=range]{-webkit-appearance:none;height:4px;background:var(--bg-card);border:none;border-radius:2px;padding:0}
+.settings-row input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:16px;height:16px;background:var(--accent);border-radius:50%;cursor:pointer}
+
+/* Setup banner */
+.setup-banner{margin:12px 20px;padding:16px 20px;background:rgba(251,191,36,.08);border:1px solid rgba(251,191,36,.25);border-radius:var(--radius);font-size:13px;color:var(--amber);display:flex;align-items:flex-start;gap:10px;line-height:1.5}
+.setup-banner a{color:var(--amber);text-decoration:underline}
+
+/* Toasts */
+#toasts{position:fixed;top:16px;right:16px;z-index:500;display:flex;flex-direction:column;gap:8px}
+.toast{padding:12px 20px;border-radius:8px;font-size:13px;font-weight:500;transform:translateX(120%);transition:transform .3s ease;max-width:360px}
+.toast.show{transform:translateX(0)}
+.toast-info{background:#1e40af;color:#dbeafe}
+.toast-error{background:#991b1b;color:#fee2e2}
+.toast-success{background:#065f46;color:#d1fae5}
+
+/* Animations */
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* Mobile */
+@media(max-width:768px){
+  .sidebar{position:fixed;left:0;top:0;bottom:0;transform:translateX(-100%);transition:transform .3s ease}
+  .sidebar.open{transform:translateX(0)}
+  .sidebar-overlay.show{display:block}
+  .hamburger{display:flex}
+  .main{margin-left:0}
+  .reader{padding:24px 16px 16px}
+  .reader-text{font-size:16px;line-height:1.8}
+  .player-controls{padding:0 12px}
+  .player-left,.player-right{min-width:auto}
+  .voice-sel{display:none}
+  .time-label{font-size:11px;min-width:36px}
+  .modal{max-width:100%;max-height:95vh;border-radius:12px}
+  .welcome h2{font-size:22px}
+  .welcome-grid{grid-template-columns:repeat(2,1fr)}
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="sidebar-overlay" id="sidebarOverlay" onclick="toggleSidebar()"></div>
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-header">
+      <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 18V14a8 8 0 1 1 16 0v4"/><rect x="4" y="18" width="6" height="8" rx="2"/><rect x="22" y="18" width="6" height="8" rx="2"/></svg>
+      <span>ReadAloud</span>
+    </div>
+    <button class="new-btn" onclick="showImport()">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+      New Document
+    </button>
+    <div class="library-list" id="libraryList"></div>
+    <div class="sidebar-footer">
+      <button onclick="showSettings()">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        Settings
+      </button>
+    </div>
+  </aside>
+
+  <main class="main">
+    <header class="topbar">
+      <button class="hamburger" onclick="toggleSidebar()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+      </button>
+      <h1 id="topTitle">ReadAloud</h1>
+      <div class="topbar-actions" id="topActions"></div>
+    </header>
+
+    <div class="content" id="contentArea"></div>
+
+    <div class="player-bar hidden" id="playerBar">
+      <div class="progress-track" id="progressTrack" onclick="seekFromProgress(event)">
+        <div class="progress-fill" id="progressFill"></div>
+      </div>
+      <div class="player-controls">
+        <div class="player-left">
+          <span class="time-label" id="curTime">0:00</span>
+        </div>
+        <div class="player-center">
+          <button class="skip-btn" onclick="skipBack()" title="Previous sentence">
+            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg>
+          </button>
+          <button class="play-btn" id="playBtn" onclick="togglePlay()" disabled title="Play">
+            <svg id="playIcon" viewBox="0 0 24 24" fill="currentColor"><polygon points="6,3 20,12 6,21"/></svg>
+          </button>
+          <button class="skip-btn" onclick="skipForward()" title="Next sentence">
+            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M16 18h2V6h-2zM6 18l8.5-6L6 6z"/></svg>
+          </button>
+        </div>
+        <div class="player-right">
+          <button class="speed-btn" id="speedBtn" onclick="cycleSpeed()" title="Playback speed">1x</button>
+          <select class="voice-sel" id="voiceSelect" onchange="onVoiceChange(this.value)" title="Voice"></select>
+          <span class="time-label right" id="totTime">0:00</span>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<!-- Import Modal -->
+<div class="modal-overlay" id="importModal">
+  <div class="modal">
+    <div class="modal-header">
+      <h2>Add Document</h2>
+      <button class="modal-close" onclick="closeImport()">&times;</button>
+    </div>
+    <div class="import-tabs" id="importTabs">
+      <button class="import-tab active" onclick="switchImportTab('text',this)">Text</button>
+      <button class="import-tab" onclick="switchImportTab('file',this)">File</button>
+      <button class="import-tab" onclick="switchImportTab('url',this)">URL</button>
+      <button class="import-tab" onclick="switchImportTab('camera',this)">Camera</button>
+    </div>
+    <div class="import-body">
+      <!-- Text -->
+      <div class="import-panel active" id="panel-text">
+        <input class="title-input" id="textTitle" placeholder="Title (optional)">
+        <textarea id="textInput" placeholder="Paste or type your text here..."></textarea>
+        <button class="import-submit" onclick="submitText()">Add to Library</button>
+      </div>
+      <!-- File -->
+      <div class="import-panel" id="panel-file">
+        <div class="drop-zone" id="dropZone">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+          <p>Drag & drop a file here</p>
+          <p class="small">PDF, DOCX, TXT, or EPUB</p>
+          <span class="browse-btn">Browse Files</span>
+          <input type="file" id="fileInput" accept=".pdf,.docx,.txt,.epub,.md" hidden>
+        </div>
+        <div id="fileStatus" style="margin-top:12px;text-align:center;color:var(--text2);font-size:13px"></div>
+      </div>
+      <!-- URL -->
+      <div class="import-panel" id="panel-url">
+        <input id="urlInput" placeholder="https://example.com/article">
+        <button class="import-submit" onclick="submitURL()" id="urlSubmit">Extract Text from URL</button>
+        <div id="urlStatus" style="margin-top:12px;text-align:center;color:var(--text2);font-size:13px"></div>
+      </div>
+      <!-- Camera -->
+      <div class="import-panel" id="panel-camera">
+        <div class="camera-area" id="cameraArea">
+          <video id="camVideo" autoplay playsinline></video>
+          <canvas id="camCanvas"></canvas>
+        </div>
+        <div class="ocr-actions">
+          <button onclick="capturePhoto()">Capture Photo</button>
+          <button onclick="document.getElementById('imgInput').click()">Upload Image</button>
+          <input type="file" id="imgInput" accept="image/*" hidden onchange="handleImageUpload(event)">
+        </div>
+        <div class="ocr-progress" id="ocrProgress" style="display:none">
+          <div class="ocr-bar"><div class="ocr-bar-fill" id="ocrFill"></div></div>
+          <p id="ocrLabel">Recognizing text...</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="toasts"></div>
+
+<script>
+/* ================================================================
+   STATE
+   ================================================================ */
+const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2, 2.5, 3];
+const STORAGE_KEY = 'readaloud_library';
+const VOICES_CACHE_KEY = 'readaloud_voices';
+const SETTINGS_KEY = 'readaloud_settings';
+
+const APP = {
+  library: [],
+  currentDocId: null,
+  // Playback
+  audio: null,
+  utterance: null,
+  isPlaying: false,
+  speed: 1,
+  speedIdx: 2,
+  chunks: [],
+  currentChunkIdx: 0,
+  wordTimings: [],
+  chunkWordStarts: [],
+  totalWords: 0,
+  audioCache: {},
+  highlightRAF: null,
+  autoScrollPaused: false,
+  autoScrollTimer: null,
+  lastScrollIdx: -20,
+  // TTS
+  ttsEngine: 'browser',
+  voices: [],
+  browserVoices: [],
+  selectedVoiceId: null,
+  elevenLabsAvailable: false,
+  elevenLabsKey: localStorage.getItem('readaloud_el_key') || '',
+  // Settings
+  fontSize: 18,
+  // UI
+  sidebarOpen: false,
+  view: 'welcome',
+};
+
+/* ================================================================
+   LIBRARY
+   ================================================================ */
+function loadLibrary() {
+  try { APP.library = JSON.parse(localStorage.getItem(STORAGE_KEY)) || []; } catch(e) { APP.library = []; }
+}
+function saveLibrary() {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(APP.library));
+}
+function addDocument(title, text, source) {
+  const id = Date.now().toString(36) + Math.random().toString(36).slice(2,6);
+  const words = text.trim().split(/\s+/).length;
+  const doc = { id, title: title || 'Untitled', text: text.trim(), source: source || 'text', dateAdded: Date.now(), lastPosition: 0, wordCount: words };
+  APP.library.unshift(doc);
+  saveLibrary();
+  renderSidebar();
+  openDocument(id);
+  closeImport();
+  showToast('Document added', 'success');
+}
+function deleteDocument(id, e) {
+  if (e) e.stopPropagation();
+  APP.library = APP.library.filter(d => d.id !== id);
+  saveLibrary();
+  if (APP.currentDocId === id) { APP.currentDocId = null; stopPlayback(); showWelcome(); }
+  renderSidebar();
+}
+function getDoc(id) { return APP.library.find(d => d.id === id); }
+
+/* ================================================================
+   NAVIGATION & RENDERING
+   ================================================================ */
+function toggleSidebar() {
+  APP.sidebarOpen = !APP.sidebarOpen;
+  document.getElementById('sidebar').classList.toggle('open', APP.sidebarOpen);
+  document.getElementById('sidebarOverlay').classList.toggle('show', APP.sidebarOpen);
+}
+function renderSidebar() {
+  const el = document.getElementById('libraryList');
+  if (!APP.library.length) { el.innerHTML = '<div style="padding:24px 16px;text-align:center;color:var(--text3);font-size:13px">No documents yet</div>'; return; }
+  el.innerHTML = APP.library.map(d => {
+    const icons = { text: '\u{1F4DD}', pdf: '\u{1F4D1}', file: '\u{1F4C4}', url: '\u{1F310}', camera: '\u{1F4F7}' };
+    const active = d.id === APP.currentDocId ? ' active' : '';
+    const ago = timeAgo(d.dateAdded);
+    return `<div class="library-item${active}" onclick="openDocument('${d.id}')">
+      <div class="lib-icon">${icons[d.source] || '\u{1F4C4}'}</div>
+      <div class="lib-info"><div class="lib-title">${esc(d.title)}</div><div class="lib-meta">${d.wordCount.toLocaleString()} words &middot; ${ago}</div></div>
+      <button class="lib-delete" onclick="deleteDocument('${d.id}',event)" title="Delete">&times;</button>
+    </div>`;
+  }).join('');
+}
+function showWelcome() {
+  APP.view = 'welcome';
+  APP.currentDocId = null;
+  document.getElementById('topTitle').textContent = 'ReadAloud';
+  document.getElementById('playerBar').classList.add('hidden');
+  document.getElementById('contentArea').innerHTML = `
+    <div class="welcome">
+      <div class="welcome-icon">\u{1F3A7}</div>
+      <h2>Welcome to ReadAloud</h2>
+      <p>Turn any text, document, or webpage into natural-sounding audio. Paste text, upload a file, or import from a URL.</p>
+      <div class="welcome-grid">
+        <div class="welcome-card" onclick="showImport('text')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+          <span>Paste Text</span>
+        </div>
+        <div class="welcome-card" onclick="showImport('file')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+          <span>Upload File</span>
+        </div>
+        <div class="welcome-card" onclick="showImport('url')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10A15.3 15.3 0 0 1 12 2z"/></svg>
+          <span>Import URL</span>
+        </div>
+        <div class="welcome-card" onclick="showImport('camera')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+          <span>Scan Image</span>
+        </div>
+      </div>
+    </div>`;
+  renderSidebar();
+}
+function openDocument(id) {
+  const doc = getDoc(id);
+  if (!doc) return;
+  stopPlayback();
+  APP.currentDocId = id;
+  APP.view = 'reader';
+  document.getElementById('topTitle').textContent = doc.title;
+  document.getElementById('playerBar').classList.remove('hidden');
+  document.getElementById('playBtn').disabled = false;
+
+  // Process text
+  const { html, totalWords } = renderWordsHTML(doc.text);
+  APP.totalWords = totalWords;
+  APP.chunks = createChunks(doc.text);
+  APP.chunkWordStarts = [];
+  let cumulative = 0;
+  for (const c of APP.chunks) { APP.chunkWordStarts.push(cumulative); cumulative += c.wordCount; }
+  APP.audioCache = {};
+  APP.currentChunkIdx = 0;
+
+  document.getElementById('contentArea').innerHTML = `<div class="reader"><div class="reader-text" id="readerText">${html}</div></div>`;
+
+  // Click-to-seek on words
+  document.getElementById('readerText').addEventListener('click', e => {
+    const w = e.target.closest('.word');
+    if (w) seekToWord(parseInt(w.dataset.idx));
+  });
+
+  // Manual scroll detection
+  document.querySelector('.content').addEventListener('scroll', () => {
+    if (APP.isPlaying) {
+      APP.autoScrollPaused = true;
+      clearTimeout(APP.autoScrollTimer);
+      APP.autoScrollTimer = setTimeout(() => { APP.autoScrollPaused = false; }, 5000);
+    }
+  }, { passive: true });
+
+  updateProgressUI();
+  renderSidebar();
+  if (APP.sidebarOpen && window.innerWidth <= 768) toggleSidebar();
+}
+
+/* ================================================================
+   TEXT PROCESSING
+   ================================================================ */
+function renderWordsHTML(text) {
+  const paragraphs = text.split(/\n\s*\n/);
+  let idx = 0, html = '';
+  for (const para of paragraphs) {
+    const trimmed = para.replace(/\s+/g, ' ').trim();
+    if (!trimmed) continue;
+    html += '<p>';
+    const words = trimmed.split(' ');
+    for (let i = 0; i < words.length; i++) {
+      if (i > 0) html += ' ';
+      html += `<span class="word" data-idx="${idx}">${esc(words[i])}</span>`;
+      idx++;
+    }
+    html += '</p>';
+  }
+  return { html, totalWords: idx };
+}
+
+function splitSentences(text) {
+  const normalized = text.split(/\n\s*\n/).map(p => p.replace(/\s+/g,' ').trim()).filter(Boolean).join(' ');
+  const sentences = [];
+  let buf = '';
+  const words = normalized.split(' ');
+  const abbrs = /^(mr|mrs|ms|dr|prof|sr|jr|st|ave|vs|etc|inc|ltd|corp|dept|univ|gen|sgt|col|capt|fig|approx|est)\.?$/i;
+  for (let i = 0; i < words.length; i++) {
+    buf += (buf ? ' ' : '') + words[i];
+    if (/[.!?]["'\u201D\u2019)\]]*$/.test(words[i]) && i < words.length - 1) {
+      const clean = words[i].replace(/[.!?,"'\u201D\u2019)\]]+$/, '');
+      if (!abbrs.test(clean) && /^[A-Z\u201C\u2018"'\(]/.test(words[i+1])) {
+        sentences.push(buf.trim());
+        buf = '';
+      }
+    }
+  }
+  if (buf.trim()) sentences.push(buf.trim());
+  return sentences;
+}
+
+function createChunks(text) {
+  const sentences = splitSentences(text);
+  const chunks = [];
+  let cur = { text: '', sentences: [], wordCount: 0 };
+  for (const s of sentences) {
+    const wc = s.split(/\s+/).length;
+    if (cur.text.length + s.length + 1 > 4500 && cur.text) {
+      chunks.push(cur);
+      cur = { text: '', sentences: [], wordCount: 0 };
+    }
+    cur.text += (cur.text ? ' ' : '') + s;
+    cur.sentences.push(s);
+    cur.wordCount += wc;
+  }
+  if (cur.text) chunks.push(cur);
+  return chunks;
+}
+
+/* ================================================================
+   TTS ENGINE
+   ================================================================ */
+async function fetchElevenLabsVoices() {
+  // Try direct API call from browser (bypasses corporate firewall when on personal device)
+  const apiKey = APP.elevenLabsKey;
+  if (!apiKey) {
+    // Try server proxy as fallback
+    try {
+      const r = await fetch('/api/tts/voices');
+      if (r.ok) {
+        const data = await r.json();
+        if (data.voices) {
+          APP.voices = data.voices;
+          APP.elevenLabsAvailable = true;
+          APP.ttsEngine = 'elevenlabs';
+          localStorage.setItem(VOICES_CACHE_KEY, JSON.stringify({ ts: Date.now(), voices: APP.voices }));
+          populateVoiceSelect();
+          return;
+        }
+      }
+    } catch(e) {}
+    // Try cache
+    return tryVoiceCache();
+  }
+  try {
+    const r = await fetch('https://api.elevenlabs.io/v1/voices', {
+      headers: { 'xi-api-key': apiKey }
+    });
+    if (!r.ok) throw new Error('Invalid API key or request failed');
+    const data = await r.json();
+    APP.voices = data.voices || [];
+    APP.elevenLabsAvailable = true;
+    APP.ttsEngine = 'elevenlabs';
+    localStorage.setItem(VOICES_CACHE_KEY, JSON.stringify({ ts: Date.now(), voices: APP.voices }));
+    populateVoiceSelect();
+  } catch(e) {
+    tryVoiceCache();
+  }
+}
+function tryVoiceCache() {
+  try {
+    const cached = JSON.parse(localStorage.getItem(VOICES_CACHE_KEY));
+    if (cached && cached.voices && cached.voices.length) {
+      APP.voices = cached.voices;
+      APP.elevenLabsAvailable = true;
+      APP.ttsEngine = 'elevenlabs';
+      populateVoiceSelect();
+      return;
+    }
+  } catch(e2) {}
+  APP.elevenLabsAvailable = false;
+  APP.ttsEngine = 'browser';
+  loadBrowserVoices();
+}
+
+function loadBrowserVoices() {
+  const populate = () => {
+    APP.browserVoices = speechSynthesis.getVoices().filter(v => v.lang.startsWith('en'));
+    populateVoiceSelect();
+  };
+  populate();
+  if (speechSynthesis.onvoiceschanged !== undefined) speechSynthesis.onvoiceschanged = populate;
+}
+
+function populateVoiceSelect() {
+  const sel = document.getElementById('voiceSelect');
+  sel.innerHTML = '';
+  if (APP.ttsEngine === 'elevenlabs' && APP.voices.length) {
+    // ElevenLabs header
+    const optE = document.createElement('optgroup');
+    optE.label = 'ElevenLabs';
+    const premade = APP.voices.filter(v => v.category === 'premade' || v.category === 'professional');
+    (premade.length ? premade : APP.voices).slice(0, 20).forEach(v => {
+      const o = document.createElement('option');
+      o.value = 'el:' + v.voice_id;
+      o.textContent = v.name;
+      optE.appendChild(o);
+    });
+    sel.appendChild(optE);
+  }
+  // Browser voices
+  if (APP.browserVoices.length) {
+    const optB = document.createElement('optgroup');
+    optB.label = 'Built-in';
+    APP.browserVoices.slice(0, 15).forEach((v, i) => {
+      const o = document.createElement('option');
+      o.value = 'br:' + i;
+      o.textContent = v.name.replace(/Microsoft |Google |Apple /g, '');
+      optB.appendChild(o);
+    });
+    sel.appendChild(optB);
+  }
+  // Restore selection
+  const saved = localStorage.getItem('readaloud_voice');
+  if (saved && sel.querySelector(`option[value="${saved}"]`)) sel.value = saved;
+  APP.selectedVoiceId = sel.value;
+}
+
+function onVoiceChange(val) {
+  APP.selectedVoiceId = val;
+  localStorage.setItem('readaloud_voice', val);
+}
+
+/* ================================================================
+   ELEVENLABS PLAYBACK
+   ================================================================ */
+async function synthesizeChunk(text) {
+  const voiceId = APP.selectedVoiceId.replace('el:', '');
+  const body = JSON.stringify({
+    text,
+    model_id: 'eleven_multilingual_v2',
+    voice_settings: { stability: 0.5, similarity_boost: 0.75 }
+  });
+  let r;
+  if (APP.elevenLabsKey) {
+    // Direct API call from browser (works outside corporate network)
+    r = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'xi-api-key': APP.elevenLabsKey },
+      body
+    });
+  } else {
+    // Server proxy fallback
+    r = await fetch('/api/tts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text, voice_id: voiceId, model_id: 'eleven_multilingual_v2', voice_settings: { stability: 0.5, similarity_boost: 0.75 } })
+    });
+  }
+  if (!r.ok) {
+    const err = await r.text().catch(() => 'TTS request failed');
+    throw new Error(err);
+  }
+  const blob = await r.blob();
+  return URL.createObjectURL(blob);
+}
+
+async function playChunkElevenLabs(idx) {
+  let url = APP.audioCache[idx];
+  if (!url) {
+    showPlayLoading(true);
+    try { url = await synthesizeChunk(APP.chunks[idx].text); }
+    catch(e) { showToast('TTS error: ' + e.message, 'error'); stopPlayback(); return; }
+    finally { showPlayLoading(false); }
+    APP.audioCache[idx] = url;
+  }
+  if (APP.audio) { APP.audio.pause(); APP.audio.src = ''; }
+  APP.audio = new Audio(url);
+  APP.audio.playbackRate = APP.speed;
+  APP.audio.addEventListener('loadedmetadata', () => {
+    setupTimings(idx, APP.audio.duration);
+    startHighlightLoop();
+  });
+  APP.audio.addEventListener('ended', () => {
+    if (idx + 1 < APP.chunks.length) { APP.currentChunkIdx = idx + 1; playChunkElevenLabs(idx + 1); }
+    else stopPlayback();
+  });
+  await APP.audio.play();
+  APP.isPlaying = true;
+  APP.currentChunkIdx = idx;
+  updatePlayBtn();
+  // Prefetch next
+  if (idx + 1 < APP.chunks.length && !APP.audioCache[idx + 1]) {
+    synthesizeChunk(APP.chunks[idx + 1].text).then(u => { APP.audioCache[idx + 1] = u; }).catch(() => {});
+  }
+}
+
+/* ================================================================
+   BROWSER TTS PLAYBACK
+   ================================================================ */
+function playChunkBrowser(idx) {
+  if (APP.utterance) speechSynthesis.cancel();
+  const chunk = APP.chunks[idx];
+  const utt = new SpeechSynthesisUtterance(chunk.text);
+  utt.rate = APP.speed;
+  // Pick voice
+  const sel = APP.selectedVoiceId;
+  if (sel && sel.startsWith('br:')) {
+    const vi = parseInt(sel.replace('br:', ''));
+    if (APP.browserVoices[vi]) utt.voice = APP.browserVoices[vi];
+  }
+  const startWord = APP.chunkWordStarts[idx];
+  // Word boundary event for highlighting
+  utt.onboundary = (e) => {
+    if (e.name === 'word') {
+      const spoken = chunk.text.substring(0, e.charIndex);
+      const wordsBefore = spoken.split(/\s+/).filter(Boolean).length;
+      highlightWord(startWord + wordsBefore);
+    }
+  };
+  utt.onend = () => {
+    if (idx + 1 < APP.chunks.length) { APP.currentChunkIdx = idx + 1; playChunkBrowser(idx + 1); }
+    else stopPlayback();
+  };
+  utt.onerror = (e) => {
+    if (e.error !== 'canceled') { showToast('Speech error: ' + e.error, 'error'); stopPlayback(); }
+  };
+  APP.utterance = utt;
+  speechSynthesis.speak(utt);
+  APP.isPlaying = true;
+  APP.currentChunkIdx = idx;
+  updatePlayBtn();
+  // Fallback highlight for browsers that don't fire onboundary
+  setupTimings(idx, estimateChunkDuration(chunk));
+  startHighlightLoop();
+}
+
+function estimateChunkDuration(chunk) {
+  return (chunk.wordCount / 150) * 60 / APP.speed;
+}
+
+/* ================================================================
+   PLAYBACK CONTROLS
+   ================================================================ */
+function togglePlay() {
+  if (!APP.currentDocId || !APP.chunks.length) return;
+  if (APP.isPlaying) pause();
+  else play();
+}
+function play() {
+  if (!APP.chunks.length) return;
+  if (APP.ttsEngine === 'elevenlabs' && APP.selectedVoiceId && APP.selectedVoiceId.startsWith('el:')) {
+    playChunkElevenLabs(APP.currentChunkIdx);
+  } else {
+    playChunkBrowser(APP.currentChunkIdx);
+  }
+}
+function pause() {
+  APP.isPlaying = false;
+  if (APP.audio) APP.audio.pause();
+  if (APP.utterance) speechSynthesis.pause();
+  cancelAnimationFrame(APP.highlightRAF);
+  updatePlayBtn();
+}
+function stopPlayback() {
+  APP.isPlaying = false;
+  if (APP.audio) { APP.audio.pause(); APP.audio.src = ''; APP.audio = null; }
+  if (APP.utterance) { speechSynthesis.cancel(); APP.utterance = null; }
+  cancelAnimationFrame(APP.highlightRAF);
+  clearHighlights();
+  updatePlayBtn();
+  updateProgressUI();
+}
+function cycleSpeed() {
+  APP.speedIdx = (APP.speedIdx + 1) % SPEEDS.length;
+  APP.speed = SPEEDS[APP.speedIdx];
+  document.getElementById('speedBtn').textContent = APP.speed + 'x';
+  if (APP.audio) APP.audio.playbackRate = APP.speed;
+  if (APP.utterance && APP.isPlaying) {
+    // Browser TTS requires restart to change rate
+    const curChunk = APP.currentChunkIdx;
+    speechSynthesis.cancel();
+    playChunkBrowser(curChunk);
+  }
+}
+function skipForward() {
+  if (!APP.chunks.length) return;
+  if (APP.currentChunkIdx + 1 < APP.chunks.length) {
+    APP.audioCache = APP.audioCache; // keep cache
+    if (APP.isPlaying) {
+      APP.currentChunkIdx++;
+      if (APP.ttsEngine === 'elevenlabs' && APP.selectedVoiceId?.startsWith('el:')) playChunkElevenLabs(APP.currentChunkIdx);
+      else playChunkBrowser(APP.currentChunkIdx);
+    } else {
+      APP.currentChunkIdx++;
+      highlightWord(APP.chunkWordStarts[APP.currentChunkIdx]);
+      updateProgressUI();
+    }
+  }
+}
+function skipBack() {
+  if (!APP.chunks.length) return;
+  if (APP.currentChunkIdx > 0) {
+    APP.currentChunkIdx--;
+    if (APP.isPlaying) {
+      if (APP.ttsEngine === 'elevenlabs' && APP.selectedVoiceId?.startsWith('el:')) playChunkElevenLabs(APP.currentChunkIdx);
+      else playChunkBrowser(APP.currentChunkIdx);
+    } else {
+      highlightWord(APP.chunkWordStarts[APP.currentChunkIdx]);
+      updateProgressUI();
+    }
+  }
+}
+function seekToWord(globalIdx) {
+  // Find which chunk this word belongs to
+  let targetChunk = 0;
+  for (let i = 0; i < APP.chunkWordStarts.length; i++) {
+    if (i + 1 < APP.chunkWordStarts.length && globalIdx >= APP.chunkWordStarts[i + 1]) continue;
+    targetChunk = i; break;
+  }
+  APP.currentChunkIdx = targetChunk;
+  if (APP.isPlaying) {
+    if (APP.ttsEngine === 'elevenlabs' && APP.selectedVoiceId?.startsWith('el:')) playChunkElevenLabs(targetChunk);
+    else playChunkBrowser(targetChunk);
+  } else {
+    highlightWord(globalIdx);
+  }
+}
+function seekFromProgress(e) {
+  const rect = e.currentTarget.getBoundingClientRect();
+  const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+  const targetWord = Math.floor(pct * APP.totalWords);
+  seekToWord(targetWord);
+}
+function showPlayLoading(loading) {
+  const btn = document.getElementById('playBtn');
+  if (loading) btn.innerHTML = '<div class="spinner" style="width:22px;height:22px;border:2px solid rgba(255,255,255,.3);border-top-color:#fff;border-radius:50%;animation:spin .8s linear infinite"></div>';
+  else updatePlayBtn();
+}
+function updatePlayBtn() {
+  const btn = document.getElementById('playBtn');
+  if (APP.isPlaying) {
+    btn.classList.add('playing');
+    btn.innerHTML = '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></svg>';
+  } else {
+    btn.classList.remove('playing');
+    btn.innerHTML = '<svg viewBox="0 0 24 24" fill="currentColor"><polygon points="6,3 20,12 6,21"/></svg>';
+  }
+}
+function updateProgressUI() {
+  if (!APP.totalWords) return;
+  const wordsPlayed = APP.chunkWordStarts[APP.currentChunkIdx] || 0;
+  const pct = (wordsPlayed / APP.totalWords) * 100;
+  document.getElementById('progressFill').style.width = pct + '%';
+  const totalSec = (APP.totalWords / 150) * 60 / APP.speed;
+  const curSec = (wordsPlayed / 150) * 60 / APP.speed;
+  document.getElementById('curTime').textContent = fmtTime(curSec);
+  document.getElementById('totTime').textContent = fmtTime(totalSec);
+}
+
+/* ================================================================
+   HIGHLIGHTING
+   ================================================================ */
+function setupTimings(chunkIdx, duration) {
+  const chunk = APP.chunks[chunkIdx];
+  const words = chunk.text.split(/\s+/);
+  const startGlobal = APP.chunkWordStarts[chunkIdx];
+  let totalWeight = 0;
+  const weights = words.map(w => {
+    let wt = w.length;
+    if (/[.!?]$/.test(w)) wt += 3;
+    else if (/[,;:]$/.test(w)) wt += 1.5;
+    totalWeight += wt;
+    return wt;
+  });
+  let t = 0;
+  APP.wordTimings = words.map((w, i) => {
+    const start = t;
+    const dur = (weights[i] / totalWeight) * duration;
+    t += dur;
+    return { start, end: t, globalIdx: startGlobal + i };
+  });
+}
+
+function startHighlightLoop() {
+  cancelAnimationFrame(APP.highlightRAF);
+  const loop = () => {
+    if (!APP.isPlaying) return;
+    let currentTime = 0;
+    if (APP.audio && APP.ttsEngine === 'elevenlabs' && APP.selectedVoiceId?.startsWith('el:')) {
+      currentTime = APP.audio.currentTime;
+    } else if (APP.utterance) {
+      // For browser TTS, estimate time (onboundary handles highlighting directly)
+      // But keep the loop for progress bar updates
+    }
+    // Find word from timings
+    if (APP.audio && !APP.audio.paused) {
+      for (const wt of APP.wordTimings) {
+        if (currentTime >= wt.start && currentTime < wt.end) {
+          highlightWord(wt.globalIdx);
+          break;
+        }
+      }
+    }
+    // Update progress
+    const wordsPlayed = APP.chunkWordStarts[APP.currentChunkIdx] || 0;
+    let chunkProgress = 0;
+    if (APP.audio && APP.audio.duration) chunkProgress = APP.audio.currentTime / APP.audio.duration;
+    const totalPct = ((wordsPlayed + chunkProgress * (APP.chunks[APP.currentChunkIdx]?.wordCount || 0)) / APP.totalWords) * 100;
+    document.getElementById('progressFill').style.width = Math.min(100, totalPct) + '%';
+    const totalSec = (APP.totalWords / 150) * 60 / APP.speed;
+    const curWords = wordsPlayed + chunkProgress * (APP.chunks[APP.currentChunkIdx]?.wordCount || 0);
+    document.getElementById('curTime').textContent = fmtTime((curWords / 150) * 60 / APP.speed);
+    document.getElementById('totTime').textContent = fmtTime(totalSec);
+
+    APP.highlightRAF = requestAnimationFrame(loop);
+  };
+  APP.highlightRAF = requestAnimationFrame(loop);
+}
+
+let _lastHighlightIdx = -1;
+function highlightWord(globalIdx) {
+  if (globalIdx === _lastHighlightIdx) return;
+  _lastHighlightIdx = globalIdx;
+  document.querySelectorAll('.word.active,.word.upcoming').forEach(el => el.classList.remove('active', 'upcoming'));
+  const el = document.querySelector(`.word[data-idx="${globalIdx}"]`);
+  if (el) {
+    el.classList.add('active');
+    for (let i = 1; i <= 3; i++) {
+      const next = document.querySelector(`.word[data-idx="${globalIdx + i}"]`);
+      if (next) next.classList.add('upcoming');
+    }
+    // Auto-scroll
+    if (!APP.autoScrollPaused && globalIdx - APP.lastScrollIdx >= 8) {
+      APP.lastScrollIdx = globalIdx;
+      const content = document.querySelector('.content');
+      const rect = el.getBoundingClientRect();
+      const cRect = content.getBoundingClientRect();
+      const midTop = cRect.top + cRect.height * 0.3;
+      const midBot = cRect.top + cRect.height * 0.7;
+      if (rect.top < midTop || rect.bottom > midBot) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    }
+  }
+}
+function clearHighlights() {
+  _lastHighlightIdx = -1;
+  document.querySelectorAll('.word.active,.word.upcoming').forEach(el => el.classList.remove('active', 'upcoming'));
+}
+
+/* ================================================================
+   IMPORT HANDLERS
+   ================================================================ */
+function showImport(tab) {
+  document.getElementById('importModal').classList.add('show');
+  if (tab) switchImportTab(tab);
+}
+function closeImport() {
+  document.getElementById('importModal').classList.remove('show');
+  stopCamera();
+}
+function switchImportTab(tab, btn) {
+  document.querySelectorAll('.import-tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.import-panel').forEach(p => p.classList.remove('active'));
+  (btn || document.querySelector(`.import-tab[onclick*="${tab}"]`))?.classList.add('active');
+  document.getElementById('panel-' + tab)?.classList.add('active');
+  if (tab === 'camera') startCamera();
+  else stopCamera();
+}
+function submitText() {
+  const text = document.getElementById('textInput').value.trim();
+  if (!text) { showToast('Please enter some text', 'error'); return; }
+  const title = document.getElementById('textTitle').value.trim() || 'Pasted Text';
+  addDocument(title, text, 'text');
+  document.getElementById('textInput').value = '';
+  document.getElementById('textTitle').value = '';
+}
+async function submitURL() {
+  const url = document.getElementById('urlInput').value.trim();
+  if (!url) { showToast('Please enter a URL', 'error'); return; }
+  const status = document.getElementById('urlStatus');
+  const btn = document.getElementById('urlSubmit');
+  btn.disabled = true;
+  status.textContent = 'Extracting text...';
+  try {
+    const r = await fetch('/api/extract-url', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url })
+    });
+    if (!r.ok) throw new Error('Failed to extract');
+    const data = await r.json();
+    if (!data.text || data.text.length < 20) throw new Error('Could not extract meaningful text');
+    addDocument(data.title || url, data.text, 'url');
+    document.getElementById('urlInput').value = '';
+    status.textContent = '';
+  } catch(e) {
+    status.textContent = 'Error: ' + e.message;
+    showToast('URL extraction failed', 'error');
+  } finally { btn.disabled = false; }
+}
+
+// File handling
+function setupDropZone() {
+  const dz = document.getElementById('dropZone');
+  const fi = document.getElementById('fileInput');
+  dz.addEventListener('click', () => fi.click());
+  dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('drag-over'); });
+  dz.addEventListener('dragleave', () => dz.classList.remove('drag-over'));
+  dz.addEventListener('drop', e => {
+    e.preventDefault(); dz.classList.remove('drag-over');
+    if (e.dataTransfer.files.length) processFile(e.dataTransfer.files[0]);
+  });
+  fi.addEventListener('change', () => { if (fi.files.length) processFile(fi.files[0]); fi.value = ''; });
+}
+
+async function processFile(file) {
+  const status = document.getElementById('fileStatus');
+  status.textContent = 'Processing ' + file.name + '...';
+  try {
+    const ext = file.name.split('.').pop().toLowerCase();
+    let text = '';
+    if (ext === 'txt' || ext === 'md') {
+      text = await file.text();
+    } else if (ext === 'pdf') {
+      text = await parsePDF(await file.arrayBuffer());
+    } else if (ext === 'docx') {
+      text = await parseDOCX(await file.arrayBuffer());
+    } else if (ext === 'epub') {
+      text = await parseEPUB(await file.arrayBuffer());
+    } else {
+      throw new Error('Unsupported file type: ' + ext);
+    }
+    if (!text || text.trim().length < 10) throw new Error('No text could be extracted');
+    const title = file.name.replace(/\.[^.]+$/, '');
+    addDocument(title, text, ext === 'pdf' ? 'pdf' : 'file');
+    status.textContent = '';
+  } catch(e) {
+    status.textContent = 'Error: ' + e.message;
+    showToast('File processing failed: ' + e.message, 'error');
+  }
+}
+
+/* ================================================================
+   DOCUMENT PARSERS
+   ================================================================ */
+async function parsePDF(buffer) {
+  if (typeof pdfjsLib === 'undefined') {
+    showToast('Loading PDF parser...', 'info');
+    await loadScript('https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.0.379/pdf.min.js');
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.0.379/pdf.worker.min.js';
+  }
+  const pdf = await pdfjsLib.getDocument({ data: buffer }).promise;
+  let text = '';
+  for (let i = 1; i <= pdf.numPages; i++) {
+    const page = await pdf.getPage(i);
+    const content = await page.getTextContent();
+    let lastY = null;
+    for (const item of content.items) {
+      if (lastY !== null && Math.abs(item.transform[5] - lastY) > 5) text += '\n';
+      else if (lastY !== null) text += ' ';
+      text += item.str;
+      lastY = item.transform[5];
+    }
+    text += '\n\n';
+  }
+  return text.trim();
+}
+
+async function parseDOCX(buffer) {
+  if (typeof mammoth === 'undefined') {
+    showToast('Loading DOCX parser...', 'info');
+    await loadScript('https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js');
+  }
+  const result = await mammoth.extractRawText({ arrayBuffer: buffer });
+  return result.value;
+}
+
+async function parseEPUB(buffer) {
+  if (typeof JSZip === 'undefined') {
+    showToast('Loading EPUB parser...', 'info');
+    await loadScript('https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js');
+  }
+  const zip = await JSZip.loadAsync(buffer);
+  // Find rootfile from container.xml
+  const container = await zip.file('META-INF/container.xml')?.async('text');
+  if (!container) throw new Error('Invalid EPUB');
+  const match = container.match(/full-path="([^"]+)"/);
+  if (!match) throw new Error('Cannot find OPF');
+  const opfPath = match[1];
+  const opfDir = opfPath.includes('/') ? opfPath.substring(0, opfPath.lastIndexOf('/') + 1) : '';
+  const opf = await zip.file(opfPath)?.async('text');
+  if (!opf) throw new Error('Cannot read OPF');
+  // Parse spine
+  const parser = new DOMParser();
+  const opfDoc = parser.parseFromString(opf, 'application/xml');
+  const manifest = {};
+  opfDoc.querySelectorAll('item').forEach(item => {
+    manifest[item.getAttribute('id')] = item.getAttribute('href');
+  });
+  const spine = [];
+  opfDoc.querySelectorAll('itemref').forEach(ref => {
+    const href = manifest[ref.getAttribute('idref')];
+    if (href) spine.push(opfDir + href);
+  });
+  // Extract text from spine items
+  let text = '';
+  for (const path of spine) {
+    const content = await zip.file(path)?.async('text');
+    if (!content) continue;
+    const doc = parser.parseFromString(content, 'application/xhtml+xml');
+    const body = doc.querySelector('body');
+    if (body) text += body.textContent.replace(/\s+/g, ' ').trim() + '\n\n';
+  }
+  return text.trim();
+}
+
+/* ================================================================
+   OCR / CAMERA
+   ================================================================ */
+let _cameraStream = null;
+function startCamera() {
+  if (_cameraStream) return;
+  navigator.mediaDevices?.getUserMedia({ video: { facingMode: 'environment' } })
+    .then(stream => {
+      _cameraStream = stream;
+      document.getElementById('camVideo').srcObject = stream;
+    })
+    .catch(() => { /* Camera not available */ });
+}
+function stopCamera() {
+  if (_cameraStream) { _cameraStream.getTracks().forEach(t => t.stop()); _cameraStream = null; }
+  const v = document.getElementById('camVideo');
+  if (v) v.srcObject = null;
+}
+function capturePhoto() {
+  const video = document.getElementById('camVideo');
+  const canvas = document.getElementById('camCanvas');
+  if (!video.videoWidth) { showToast('Camera not ready', 'error'); return; }
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  canvas.getContext('2d').drawImage(video, 0, 0);
+  runOCR(canvas.toDataURL('image/png'));
+}
+function handleImageUpload(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => runOCR(reader.result);
+  reader.readAsDataURL(file);
+}
+async function runOCR(imageData) {
+  const prog = document.getElementById('ocrProgress');
+  const fill = document.getElementById('ocrFill');
+  const label = document.getElementById('ocrLabel');
+  prog.style.display = 'block';
+  fill.style.width = '0%';
+  label.textContent = 'Loading OCR engine...';
+  try {
+    if (typeof Tesseract === 'undefined') {
+      await loadScript('https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js');
+    }
+    const result = await Tesseract.recognize(imageData, 'eng', {
+      logger: m => {
+        if (m.status === 'recognizing text') {
+          fill.style.width = Math.round(m.progress * 100) + '%';
+          label.textContent = 'Recognizing text... ' + Math.round(m.progress * 100) + '%';
+        }
+      }
+    });
+    const text = result.data.text.trim();
+    if (!text) throw new Error('No text detected');
+    addDocument('Scanned Image', text, 'camera');
+  } catch(e) {
+    showToast('OCR failed: ' + e.message, 'error');
+  } finally {
+    prog.style.display = 'none';
+  }
+}
+
+/* ================================================================
+   SETTINGS
+   ================================================================ */
+function showSettings() {
+  APP.view = 'settings';
+  document.getElementById('topTitle').textContent = 'Settings';
+  document.getElementById('playerBar').classList.add('hidden');
+  const engineOptions = APP.elevenLabsAvailable
+    ? `<option value="elevenlabs" ${APP.ttsEngine==='elevenlabs'?'selected':''}>ElevenLabs (Cloud)</option><option value="browser" ${APP.ttsEngine==='browser'?'selected':''}>Built-in (Free)</option>`
+    : `<option value="browser" selected>Built-in (Free)</option>`;
+  const keyMasked = APP.elevenLabsKey ? APP.elevenLabsKey.slice(0,8) + '...' + APP.elevenLabsKey.slice(-4) : '';
+  document.getElementById('contentArea').innerHTML = `
+    <div class="settings-panel">
+      <div class="settings-group">
+        <h3>ElevenLabs API Key</h3>
+        <p style="font-size:13px;color:var(--text2);margin-bottom:12px;line-height:1.5">Enter your API key for human-like voices. Get a free key at <a href="https://elevenlabs.io" target="_blank">elevenlabs.io</a> (Profile > API Keys). The key is stored locally on this device only.</p>
+        <div style="display:flex;gap:8px">
+          <input id="elKeyInput" type="password" placeholder="sk_..." value="${APP.elevenLabsKey}" style="flex:1;font-size:13px;font-family:monospace">
+          <button onclick="saveElevenLabsKey()" style="padding:10px 20px;background:var(--accent);color:#fff;border-radius:8px;font-weight:600;font-size:13px;white-space:nowrap">Save Key</button>
+        </div>
+        ${APP.elevenLabsKey ? `<div style="margin-top:8px;font-size:12px;color:var(--accent)">Key configured: ${keyMasked}</div>` : ''}
+      </div>
+      <div class="settings-group">
+        <h3>Voice Engine</h3>
+        <div class="settings-row">
+          <label>TTS Engine</label>
+          <select onchange="APP.ttsEngine=this.value;populateVoiceSelect()">${engineOptions}</select>
+        </div>
+      </div>
+      <div class="settings-group">
+        <h3>Reader</h3>
+        <div class="settings-row">
+          <label>Font Size: <span id="fsVal">${APP.fontSize}px</span></label>
+          <input type="range" min="14" max="28" value="${APP.fontSize}" oninput="APP.fontSize=+this.value;document.getElementById('fsVal').textContent=this.value+'px'">
+        </div>
+      </div>
+      <div class="settings-group">
+        <h3>Library</h3>
+        <div class="settings-row">
+          <label>Documents: ${APP.library.length}</label>
+          <button style="padding:8px 16px;background:var(--red);color:#fff;border-radius:8px;font-size:13px;font-weight:600" onclick="if(confirm('Clear all documents?')){APP.library=[];saveLibrary();renderSidebar();showToast('Library cleared','success')}">Clear All</button>
+        </div>
+      </div>
+      <div class="settings-group">
+        <h3>About</h3>
+        <div style="color:var(--text2);font-size:13px;line-height:1.6">
+          ReadAloud v1.0<br>
+          A Speechify-inspired text-to-speech reader.<br>
+          Built by Esteban Sanchez.
+        </div>
+      </div>
+    </div>`;
+  if (APP.sidebarOpen && window.innerWidth <= 768) toggleSidebar();
+}
+async function saveElevenLabsKey() {
+  const key = document.getElementById('elKeyInput').value.trim();
+  if (!key) {
+    APP.elevenLabsKey = '';
+    localStorage.removeItem('readaloud_el_key');
+    APP.elevenLabsAvailable = false;
+    APP.ttsEngine = 'browser';
+    loadBrowserVoices();
+    showToast('API key removed', 'info');
+    showSettings();
+    return;
+  }
+  // Test the key
+  showToast('Testing API key...', 'info');
+  try {
+    const r = await fetch('https://api.elevenlabs.io/v1/voices', { headers: { 'xi-api-key': key } });
+    if (!r.ok) throw new Error('Invalid key (HTTP ' + r.status + ')');
+    const data = await r.json();
+    APP.elevenLabsKey = key;
+    localStorage.setItem('readaloud_el_key', key);
+    APP.voices = data.voices || [];
+    APP.elevenLabsAvailable = true;
+    APP.ttsEngine = 'elevenlabs';
+    localStorage.setItem(VOICES_CACHE_KEY, JSON.stringify({ ts: Date.now(), voices: APP.voices }));
+    populateVoiceSelect();
+    showToast('ElevenLabs connected! ' + APP.voices.length + ' voices available', 'success');
+    showSettings();
+  } catch(e) {
+    showToast('API key test failed: ' + e.message, 'error');
+  }
+}
+
+/* ================================================================
+   KEYBOARD SHORTCUTS
+   ================================================================ */
+document.addEventListener('keydown', e => {
+  // Don't capture when typing in inputs
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
+  if (e.code === 'Space') { e.preventDefault(); togglePlay(); }
+  else if (e.code === 'ArrowRight') { e.preventDefault(); skipForward(); }
+  else if (e.code === 'ArrowLeft') { e.preventDefault(); skipBack(); }
+  else if (e.code === 'ArrowUp') { e.preventDefault(); if (APP.speedIdx < SPEEDS.length-1) { APP.speedIdx++; APP.speed = SPEEDS[APP.speedIdx]; document.getElementById('speedBtn').textContent = APP.speed + 'x'; if (APP.audio) APP.audio.playbackRate = APP.speed; } }
+  else if (e.code === 'ArrowDown') { e.preventDefault(); if (APP.speedIdx > 0) { APP.speedIdx--; APP.speed = SPEEDS[APP.speedIdx]; document.getElementById('speedBtn').textContent = APP.speed + 'x'; if (APP.audio) APP.audio.playbackRate = APP.speed; } }
+});
+
+/* ================================================================
+   UTILITIES
+   ================================================================ */
+function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+function fmtTime(sec) {
+  if (!sec || !isFinite(sec)) return '0:00';
+  const m = Math.floor(sec / 60), s = Math.floor(sec % 60);
+  return m + ':' + String(s).padStart(2, '0');
+}
+function timeAgo(ts) {
+  const diff = (Date.now() - ts) / 1000;
+  if (diff < 60) return 'just now';
+  if (diff < 3600) return Math.floor(diff / 60) + 'm ago';
+  if (diff < 86400) return Math.floor(diff / 3600) + 'h ago';
+  if (diff < 604800) return Math.floor(diff / 86400) + 'd ago';
+  return new Date(ts).toLocaleDateString();
+}
+function showToast(msg, type = 'info', duration = 3000) {
+  const t = document.createElement('div');
+  t.className = 'toast toast-' + type;
+  t.textContent = msg;
+  document.getElementById('toasts').appendChild(t);
+  setTimeout(() => t.classList.add('show'), 10);
+  setTimeout(() => { t.classList.remove('show'); setTimeout(() => t.remove(), 300); }, duration);
+}
+function loadScript(src) {
+  return new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = src;
+    s.onload = resolve;
+    s.onerror = () => reject(new Error('Failed to load: ' + src));
+    document.head.appendChild(s);
+  });
+}
+
+/* ================================================================
+   PWA
+   ================================================================ */
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/sw-readaloud.js').catch(() => {});
+}
+
+/* ================================================================
+   INIT
+   ================================================================ */
+document.addEventListener('DOMContentLoaded', () => {
+  loadLibrary();
+  renderSidebar();
+  showWelcome();
+  setupDropZone();
+  fetchElevenLabsVoices();
+  loadBrowserVoices();
+});
+</script>
+</body>
+</html>
