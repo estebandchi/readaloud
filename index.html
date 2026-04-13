@@ -997,20 +997,69 @@ async function submitURL() {
   btn.disabled = true;
   status.textContent = 'Extracting text...';
   try {
-    const r = await fetch('/api/extract-url', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url })
-    });
-    if (!r.ok) throw new Error('Failed to extract');
-    const data = await r.json();
-    if (!data.text || data.text.length < 20) throw new Error('Could not extract meaningful text');
-    addDocument(data.title || url, data.text, 'url');
+    let html = '';
+    // Try server proxy first (works on local network), fall back to CORS proxy
+    try {
+      const r = await fetch('/api/extract-url', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url })
+      });
+      if (r.ok) {
+        const data = await r.json();
+        if (data.text && data.text.length >= 20) {
+          addDocument(data.title || url, data.text, 'url');
+          document.getElementById('urlInput').value = '';
+          status.textContent = '';
+          return;
+        }
+      }
+    } catch(e) { /* server not available, use CORS proxy */ }
+    // Client-side extraction via CORS proxy
+    const proxies = [
+      u => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`,
+      u => `https://corsproxy.io/?${encodeURIComponent(u)}`
+    ];
+    for (const proxyFn of proxies) {
+      try {
+        const r = await fetch(proxyFn(url), { signal: AbortSignal.timeout(12000) });
+        if (r.ok) { html = await r.text(); break; }
+      } catch(e) { continue; }
+    }
+    if (!html) throw new Error('Could not fetch URL. Try pasting the text directly instead.');
+    // Extract title
+    const titleMatch = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+    const title = titleMatch ? titleMatch[1].replace(/\s+/g, ' ').trim() : '';
+    // Extract readable text from HTML
+    const text = extractTextFromHTML(html);
+    if (!text || text.length < 20) throw new Error('Could not extract meaningful text from this page');
+    addDocument(title || url, text, 'url');
     document.getElementById('urlInput').value = '';
     status.textContent = '';
   } catch(e) {
     status.textContent = 'Error: ' + e.message;
     showToast('URL extraction failed', 'error');
   } finally { btn.disabled = false; }
+}
+
+function extractTextFromHTML(html) {
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  // Remove non-content elements
+  doc.querySelectorAll('script,style,nav,footer,header,aside,noscript,iframe,svg,form,button,input,select,textarea,menu,[role=navigation],[role=banner],[role=complementary],[aria-hidden=true]').forEach(el => el.remove());
+  // Prefer article/main content if present
+  const main = doc.querySelector('article') || doc.querySelector('[role=main]') || doc.querySelector('main') || doc.body;
+  // Extract text from content elements
+  const blocks = main.querySelectorAll('p,h1,h2,h3,h4,h5,h6,li,td,blockquote,figcaption,pre,dd');
+  let text = '';
+  if (blocks.length >= 3) {
+    blocks.forEach(el => {
+      const t = el.textContent.replace(/\s+/g, ' ').trim();
+      if (t.length > 10) text += t + '\n\n';
+    });
+  } else {
+    // Fallback: just get all text from main
+    text = main.textContent.replace(/\s+/g, ' ').trim();
+  }
+  return text.replace(/\n{3,}/g, '\n\n').trim();
 }
 
 // File handling
