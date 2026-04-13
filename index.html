@@ -369,7 +369,7 @@ const APP = {
   autoScrollTimer: null,
   lastScrollIdx: -20,
   // TTS
-  ttsEngine: localStorage.getItem('readaloud_engine') || 'kokoro',
+  ttsEngine: localStorage.getItem('readaloud_engine') || 'browser',
   voices: [],
   browserVoices: [],
   selectedVoiceId: null,
@@ -754,19 +754,29 @@ async function playChunkElevenLabs(idx) {
     catch(e) {
       showPlayLoading(false);
       const msg = e.message || '';
-      // Auto-fallback to browser TTS on quota/billing errors
-      if (msg.includes('quota') || msg.includes('limit') || msg.includes('exceeded') || msg.includes('402') || msg.includes('429')) {
-        showToast('ElevenLabs quota exceeded - switching to Kokoro AI', 'info', 5000);
-        APP.ttsEngine = 'kokoro';
-        APP.selectedVoiceId = 'ko:af_heart';
-        localStorage.setItem('readaloud_engine', 'kokoro');
+      // Kokoro too slow on this device -- fall back to browser TTS
+      if (msg.includes('KOKORO_SLOW') || msg.includes('Unexpected audio format')) {
+        showToast('AI voice too slow on this device - using built-in voice', 'info', 5000);
+        APP.ttsEngine = 'browser';
+        APP.selectedVoiceId = null;
+        localStorage.setItem('readaloud_engine', 'browser');
+        loadBrowserVoices();
+        const voices = speechSynthesis.getVoices().filter(v => v.lang.startsWith('en'));
+        if (voices.length) { APP.browserVoices = voices; APP.selectedVoiceId = 'br:0'; }
         populateVoiceSelect();
-        // Re-chunk with smaller size for Kokoro and replay
-        if (APP.currentDocId) {
-          const doc = getDoc(APP.currentDocId);
-          if (doc) { APP.chunks = createChunks(doc.text); APP.chunkWordStarts = []; let c = 0; for (const ch of APP.chunks) { APP.chunkWordStarts.push(c); c += ch.wordCount; } }
-        }
-        playChunkElevenLabs(idx);
+        playChunkBrowser(idx);
+        return;
+      }
+      // ElevenLabs quota exceeded -- fall back to browser TTS
+      if (msg.includes('quota') || msg.includes('limit') || msg.includes('exceeded') || msg.includes('402') || msg.includes('429')) {
+        showToast('ElevenLabs quota exceeded - using built-in voice', 'info', 5000);
+        APP.ttsEngine = 'browser';
+        localStorage.setItem('readaloud_engine', 'browser');
+        loadBrowserVoices();
+        const voices = speechSynthesis.getVoices().filter(v => v.lang.startsWith('en'));
+        if (voices.length) { APP.browserVoices = voices; APP.selectedVoiceId = 'br:0'; }
+        populateVoiceSelect();
+        playChunkBrowser(idx);
         return;
       }
       showToast('TTS error: ' + msg, 'error');
@@ -1490,9 +1500,15 @@ async function loadKokoro(showUI = true) {
   if (showUI) showToast('Loading AI voice model (~92 MB, one-time download)...', 'info', 8000);
   try {
     const { KokoroTTS } = await import('https://cdn.jsdelivr.net/npm/kokoro-js@1.1.1/+esm');
+    // Try WebGPU first (much faster on devices that support it), fall back to WASM
+    let device = 'wasm';
+    if (typeof navigator !== 'undefined' && navigator.gpu) {
+      try { const adapter = await navigator.gpu.requestAdapter(); if (adapter) device = 'webgpu'; } catch(e) {}
+    }
+    if (showUI) showToast(`Loading AI voice model (${device === 'webgpu' ? 'GPU' : 'CPU'})...`, 'info', 6000);
     APP.kokoroModel = await KokoroTTS.from_pretrained('onnx-community/Kokoro-82M-v1.0-ONNX', {
       dtype: 'q8',
-      device: 'wasm',
+      device,
     });
     APP.kokoroReady = true;
     if (showUI) showToast('AI voice model ready!', 'success');
@@ -1509,11 +1525,27 @@ async function loadKokoro(showUI = true) {
   }
 }
 
+function withTimeout(promise, ms) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => setTimeout(() => reject(new Error('TIMEOUT')), ms))
+  ]);
+}
+
 async function synthesizeKokoro(text) {
   const model = await loadKokoro();
   if (!model) throw new Error('Kokoro model not available');
   const voiceId = (APP.selectedVoiceId || 'ko:af_heart').replace('ko:', '');
-  const result = await model.generate(text, { voice: voiceId });
+  // 15-second timeout -- if Kokoro can't generate fast enough (mobile WASM), fall back
+  let result;
+  try {
+    result = await withTimeout(model.generate(text, { voice: voiceId }), 15000);
+  } catch(e) {
+    if (e.message === 'TIMEOUT') {
+      throw new Error('KOKORO_SLOW');
+    }
+    throw e;
+  }
   // Handle different possible output formats from kokoro-js
   let samples, sr = 24000;
   if (result && result.audio instanceof Float32Array) {
@@ -1525,7 +1557,6 @@ async function synthesizeKokoro(text) {
     samples = result.data;
     sr = result.sampling_rate || result.sampleRate || 24000;
   } else if (result && typeof result.toWav === 'function') {
-    // Some versions return an object with a toWav() method
     const wavData = result.toWav();
     return URL.createObjectURL(new Blob([wavData], { type: 'audio/wav' }));
   } else {
