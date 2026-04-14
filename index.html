@@ -538,6 +538,15 @@ function openDocument(id) {
   updateProgressUI();
   renderSidebar();
   if (APP.sidebarOpen && window.innerWidth <= 768) toggleSidebar();
+
+  // Prefetch first chunk so play is instant
+  if (APP.chunks.length && usesAudioElement()) {
+    synthesizeChunk(APP.chunks[0].text).then(url => {
+      APP.audioCache[0] = url;
+      // Also prefetch chunk 1
+      if (APP.chunks.length > 1) synthesizeChunk(APP.chunks[1].text).then(u => { APP.audioCache[1] = u; }).catch(() => {});
+    }).catch(() => {});
+  }
 }
 
 /* ================================================================
