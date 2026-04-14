@@ -811,9 +811,20 @@ async function playChunkElevenLabs(idx) {
         playChunkBrowser(idx);
         return;
       }
-      // Edge TTS failed -- fall back to browser TTS
+      // Edge TTS: no proxy configured -- prompt setup, fall back to browser TTS
+      if (msg.includes('EDGE_NO_PROXY')) {
+        showToast('Set up your free voice proxy in Settings to use Neural voices', 'info', 6000);
+        APP.ttsEngine = 'browser';
+        loadBrowserVoices();
+        const voices = speechSynthesis.getVoices().filter(v => v.lang.startsWith('en'));
+        if (voices.length) { APP.browserVoices = voices; APP.selectedVoiceId = 'br:0'; }
+        populateVoiceSelect();
+        playChunkBrowser(idx);
+        return;
+      }
+      // Edge TTS proxy failed -- fall back to browser TTS
       if (msg.includes('EDGE_FAIL')) {
-        showToast('Neural voice unavailable - using built-in voice', 'info', 4000);
+        showToast('Neural voice error - using built-in voice', 'info', 4000);
         APP.ttsEngine = 'browser';
         localStorage.setItem('readaloud_engine', 'browser');
         loadBrowserVoices();
@@ -1406,7 +1417,6 @@ function showSettings() {
     <div class="settings-panel">
       <div class="settings-group">
         <h3>Voice Engine</h3>
-        <p style="font-size:13px;color:var(--text2);margin-bottom:12px;line-height:1.5">Neural voices are free, natural-sounding Microsoft voices. No account or API key needed.</p>
         <div class="settings-row">
           <label>Engine</label>
           <select onchange="switchEngine(this.value)" style="max-width:200px">
@@ -1416,6 +1426,19 @@ function showSettings() {
             <option value="browser" ${APP.ttsEngine==='browser'?'selected':''}>Built-in</option>
           </select>
         </div>
+      </div>
+      <div class="settings-group">
+        <h3>Neural Voice Proxy (Required for Neural)</h3>
+        <p style="font-size:13px;color:var(--text2);margin-bottom:12px;line-height:1.6">Neural voices need a free proxy. One-time setup:<br>
+        1. Go to <a href="https://workers.cloudflare.com" target="_blank">workers.cloudflare.com</a> (free, no credit card)<br>
+        2. Create account, click "Create a Worker"<br>
+        3. Paste the code from <a href="https://github.com/estebandchi/readaloud/blob/main/edge-tts-worker.js" target="_blank">edge-tts-worker.js</a><br>
+        4. Click Deploy, copy the URL below</p>
+        <div style="display:flex;gap:8px">
+          <input id="proxyInput" placeholder="https://your-worker.your-name.workers.dev" value="${localStorage.getItem('readaloud_tts_proxy') || ''}" style="flex:1;font-size:13px">
+          <button onclick="saveProxy()" style="padding:10px 20px;background:var(--accent);color:#fff;border-radius:8px;font-weight:600;font-size:13px;white-space:nowrap">Save</button>
+        </div>
+        ${localStorage.getItem('readaloud_tts_proxy') ? `<div style="margin-top:8px;font-size:12px;color:var(--accent)">Proxy configured</div>` : `<div style="margin-top:8px;font-size:12px;color:var(--amber)">Not configured - Neural voices won't work until set up</div>`}
       </div>
       <div class="settings-group">
         <h3>ElevenLabs API Key (Optional)</h3>
@@ -1450,6 +1473,17 @@ function showSettings() {
       </div>
     </div>`;
   if (APP.sidebarOpen && window.innerWidth <= 768) toggleSidebar();
+}
+function saveProxy() {
+  const url = document.getElementById('proxyInput').value.trim();
+  if (url) {
+    localStorage.setItem('readaloud_tts_proxy', url);
+    showToast('Proxy saved! Neural voices are ready.', 'success');
+  } else {
+    localStorage.removeItem('readaloud_tts_proxy');
+    showToast('Proxy removed', 'info');
+  }
+  showSettings();
 }
 function switchEngine(val) {
   APP.ttsEngine = val;
@@ -1540,68 +1574,29 @@ function loadScript(src) {
 }
 
 /* ================================================================
-   EDGE TTS ENGINE (Microsoft free neural voices via WebSocket)
+   EDGE TTS ENGINE (Microsoft free neural voices)
+   Uses a Cloudflare Worker proxy (free) to access Edge TTS.
+   Direct WebSocket fails from browsers due to Origin header check.
    ================================================================ */
-const EDGE_TTS_TOKEN = '6A5AA1D4EAFF4E9FB37E23D68491D6F4';
-const EDGE_TTS_WS = `wss://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1?TrustedClientToken=${EDGE_TTS_TOKEN}`;
-
 function escapeXml(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
 async function synthesizeEdgeTTS(text) {
   const voice = (APP.selectedVoiceId || 'edge:en-US-JennyNeural').replace('edge:', '');
-  return new Promise((resolve, reject) => {
-    let ws;
-    try { ws = new WebSocket(EDGE_TTS_WS); } catch(e) { reject(new Error('EDGE_FAIL')); return; }
-    ws.binaryType = 'arraybuffer';
-    const audioChunks = [];
-    const requestId = Array.from(crypto.getRandomValues(new Uint8Array(16))).map(b=>b.toString(16).padStart(2,'0')).join('');
-    let resolved = false;
-
-    const finish = () => {
-      if (resolved) return;
-      resolved = true;
-      if (audioChunks.length > 0) {
-        resolve(URL.createObjectURL(new Blob(audioChunks, { type: 'audio/mp3' })));
-      } else {
-        reject(new Error('EDGE_FAIL'));
-      }
-    };
-
-    ws.onopen = () => {
-      // Send config
-      ws.send(`Content-Type:application/json; charset=utf-8\r\nPath:speech.config\r\n\r\n{"context":{"synthesis":{"audio":{"metadataoptions":{"sentenceBoundaryEnabled":"false","wordBoundaryEnabled":"true"},"outputFormat":"audio-24khz-48kbitrate-mono-mp3"}}}}`);
-      // Send SSML
-      const ssml = `<speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' xml:lang='en-US'><voice name='${voice}'>${escapeXml(text)}</voice></speak>`;
-      ws.send(`X-RequestId:${requestId}\r\nContent-Type:application/ssml+xml\r\nPath:ssml\r\n\r\n${ssml}`);
-    };
-
-    ws.onmessage = (event) => {
-      if (event.data instanceof ArrayBuffer) {
-        // Binary message: 2-byte header length, then header text, then audio
-        const view = new DataView(event.data);
-        if (event.data.byteLength < 2) return;
-        const headerLen = view.getUint16(0);
-        const audioStart = 2 + headerLen;
-        if (audioStart < event.data.byteLength) {
-          audioChunks.push(event.data.slice(audioStart));
-        }
-      } else if (typeof event.data === 'string') {
-        if (event.data.includes('Path:turn.end')) {
-          try { ws.close(); } catch(e) {}
-          finish();
-        }
-      }
-    };
-
-    ws.onerror = () => {
-      if (!resolved) { resolved = true; reject(new Error('EDGE_FAIL')); }
-    };
-    ws.onclose = () => finish();
-    // 20 second timeout
-    setTimeout(() => {
-      if (!resolved) { try { ws.close(); } catch(e) {} resolved = true; reject(new Error('EDGE_FAIL')); }
-    }, 20000);
+  const proxyUrl = localStorage.getItem('readaloud_tts_proxy') || '';
+  if (!proxyUrl) throw new Error('EDGE_NO_PROXY');
+  const r = await fetch(proxyUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text, voice }),
+    signal: AbortSignal.timeout(25000),
   });
+  if (!r.ok) {
+    const err = await r.text().catch(() => 'Proxy error');
+    throw new Error('EDGE_FAIL: ' + err);
+  }
+  const blob = await r.blob();
+  if (blob.size < 100) throw new Error('EDGE_FAIL: empty audio');
+  return URL.createObjectURL(blob);
 }
 
 /* ================================================================
