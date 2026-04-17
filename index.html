@@ -1365,15 +1365,17 @@ function clearHighlights() {
    ================================================================ */
 let _searchMatches = [];
 let _searchIdx = -1;
+let _searchMode = 'none'; // 'document' or 'library'
 
 function openSearch() {
-  if (!document.getElementById('readerText')) return;
   const bar = document.getElementById('searchBar');
   const title = document.getElementById('topTitle');
   const actions = document.getElementById('topActions');
   bar.classList.add('active');
   title.style.display = 'none';
   actions.style.display = 'none';
+  _searchMode = document.getElementById('readerText') ? 'document' : 'library';
+  document.getElementById('searchInput').placeholder = _searchMode === 'document' ? 'Search in document...' : 'Search all documents...';
   document.getElementById('searchInput').focus();
 }
 
@@ -1386,8 +1388,15 @@ function closeSearch() {
   actions.style.display = '';
   document.getElementById('searchInput').value = '';
   clearSearchHighlights();
+  if (_searchMode === 'library') {
+    const sr = document.getElementById('searchResults');
+    if (sr) sr.remove();
+    const welcome = document.querySelector('.welcome');
+    if (welcome) welcome.style.display = '';
+  }
   _searchMatches = [];
   _searchIdx = -1;
+  _searchMode = 'none';
   document.getElementById('searchCount').textContent = '';
 }
 
@@ -1398,6 +1407,11 @@ function clearSearchHighlights() {
 }
 
 function doSearch(query) {
+  if (_searchMode === 'document') doSearchDocument(query);
+  else doSearchLibrary(query);
+}
+
+function doSearchDocument(query) {
   clearSearchHighlights();
   _searchMatches = [];
   _searchIdx = -1;
@@ -1419,6 +1433,56 @@ function doSearch(query) {
   document.getElementById('searchCount').textContent = _searchMatches.length ? `${_searchIdx + 1}/${_searchMatches.length}` : 'No results';
 }
 
+function doSearchLibrary(query) {
+  _searchMatches = [];
+  _searchIdx = -1;
+  let sr = document.getElementById('searchResults');
+  if (!sr) {
+    sr = document.createElement('div');
+    sr.id = 'searchResults';
+    sr.style.cssText = 'padding:16px 20px;';
+    const content = document.getElementById('contentArea');
+    const welcome = content.querySelector('.welcome');
+    if (welcome) welcome.style.display = 'none';
+    content.appendChild(sr);
+  }
+  if (!query || query.length < 2) {
+    sr.innerHTML = '<div style="text-align:center;color:var(--text3);padding:40px 0;font-size:14px">Type to search across all documents</div>';
+    document.getElementById('searchCount').textContent = '';
+    return;
+  }
+  const q = query.toLowerCase();
+  const results = [];
+  for (const doc of APP.library) {
+    const titleMatch = doc.title.toLowerCase().includes(q);
+    const textLower = doc.text.toLowerCase();
+    const textIdx = textLower.indexOf(q);
+    if (titleMatch || textIdx >= 0) {
+      let snippet = '';
+      if (textIdx >= 0) {
+        const start = Math.max(0, textIdx - 60);
+        const end = Math.min(doc.text.length, textIdx + q.length + 60);
+        snippet = (start > 0 ? '...' : '') + doc.text.slice(start, end).replace(/\n/g, ' ') + (end < doc.text.length ? '...' : '');
+      }
+      results.push({ doc, snippet, textIdx });
+    }
+  }
+  if (!results.length) {
+    sr.innerHTML = '<div style="text-align:center;color:var(--text3);padding:40px 0;font-size:14px">No results</div>';
+    document.getElementById('searchCount').textContent = 'No results';
+    return;
+  }
+  document.getElementById('searchCount').textContent = results.length + ' doc' + (results.length > 1 ? 's' : '');
+  sr.innerHTML = results.map(r => {
+    const hl = (s) => s.replace(new RegExp('(' + q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'gi'), '<mark style="background:rgba(219,166,84,.4);color:var(--text);border-radius:2px;padding:0 2px">$1</mark>');
+    return `<div onclick="closeSearch();openDocument('${r.doc.id}')" style="padding:16px;margin-bottom:8px;background:var(--bg-card);border-radius:var(--radius);cursor:pointer;border:1px solid var(--border);transition:var(--transition)">
+      <div style="font-weight:600;font-size:15px;margin-bottom:6px">${hl(esc(r.doc.title))}</div>
+      ${r.snippet ? `<div style="font-size:13px;color:var(--text2);line-height:1.5">${hl(esc(r.snippet))}</div>` : ''}
+      <div style="font-size:11px;color:var(--text3);margin-top:6px">${r.doc.wordCount} words</div>
+    </div>`;
+  }).join('');
+}
+
 function goToSearchMatch(idx) {
   _searchMatches.forEach(el => el.classList.remove('search-current'));
   if (!_searchMatches.length) return;
@@ -1430,6 +1494,7 @@ function goToSearchMatch(idx) {
 }
 
 function searchNav(dir) {
+  if (_searchMode === 'library') return;
   if (!_searchMatches.length) return;
   let next = _searchIdx + dir;
   if (next < 0) next = _searchMatches.length - 1;
@@ -1438,6 +1503,7 @@ function searchNav(dir) {
 }
 
 function searchPlayFromMatch() {
+  if (_searchMode === 'library') return;
   if (!_searchMatches.length || _searchIdx < 0) return;
   const el = _searchMatches[_searchIdx];
   const idx = parseInt(el.dataset.idx);
