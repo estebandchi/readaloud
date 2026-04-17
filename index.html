@@ -113,6 +113,10 @@ select{cursor:pointer;appearance:none;background-image:url("data:image/svg+xml,%
 .skip-btn svg{width:18px;height:18px}
 .speed-btn{padding:4px 10px;border-radius:6px;font-size:13px;font-weight:700;color:var(--accent);background:var(--accent-bg);transition:var(--transition);min-width:44px}
 .speed-btn:hover{background:var(--accent-strong)}
+.sleep-btn{width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:var(--text3);transition:var(--transition)}
+.sleep-btn:hover{background:var(--bg-card);color:var(--text)}
+.sleep-btn.active{color:var(--amber);background:rgba(251,191,36,.12)}
+.sleep-btn.active::after{content:attr(data-time);font-size:9px;font-weight:700;position:absolute;bottom:-2px;color:var(--amber)}
 .voice-sel{max-width:130px;font-size:12px;padding:6px 28px 6px 10px;background:var(--bg-card);border-color:var(--border)}
 
 /* Import Modal */
@@ -281,6 +285,9 @@ select{cursor:pointer;appearance:none;background-image:url("data:image/svg+xml,%
         </div>
         <div class="player-right">
           <button class="speed-btn" id="speedBtn" onclick="cycleSpeed()" title="Playback speed">1x</button>
+          <button class="sleep-btn" id="sleepBtn" onclick="cycleSleepTimer()" title="Sleep timer">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+          </button>
           <select class="voice-sel" id="voiceSelect" onchange="onVoiceChange(this.value)" title="Voice"></select>
           <span class="time-label right" id="totTime">0:00</span>
         </div>
@@ -470,7 +477,7 @@ function renderSidebar() {
     const ago = timeAgo(d.dateAdded);
     return `<div class="library-item${active}" onclick="openDocument('${d.id}')">
       <div class="lib-icon">${icons[d.source] || '\u{1F4C4}'}</div>
-      <div class="lib-info"><div class="lib-title">${esc(d.title)}</div><div class="lib-meta">${d.wordCount.toLocaleString()} words &middot; ${ago}</div></div>
+      <div class="lib-info"><div class="lib-title">${esc(d.title)}</div><div class="lib-meta">${d.wordCount.toLocaleString()} words &middot; ~${Math.ceil(d.wordCount/150)} min &middot; ${ago}</div></div>
       <button class="lib-delete" onclick="deleteDocument('${d.id}',event)" title="Delete">&times;</button>
     </div>`;
   }).join('');
@@ -547,12 +554,16 @@ function openDocument(id) {
   renderSidebar();
   if (APP.sidebarOpen && window.innerWidth <= 768) toggleSidebar();
 
-  // Prefetch first chunk so play is instant
+  // Restore reading position if previously read
+  restoreReadingPosition(doc);
+
+  // Prefetch first chunk (or the resumed chunk) so play is instant
+  const prefetchIdx = APP.currentChunkIdx;
   if (APP.chunks.length && usesAudioElement()) {
-    synthesizeChunk(APP.chunks[0].text).then(url => {
-      APP.audioCache[0] = url;
-      // Also prefetch chunk 1
-      if (APP.chunks.length > 1) synthesizeChunk(APP.chunks[1].text).then(u => { APP.audioCache[1] = u; }).catch(() => {});
+    synthesizeChunk(APP.chunks[prefetchIdx].text).then(url => {
+      APP.audioCache[prefetchIdx] = url;
+      // Also prefetch next chunk
+      if (prefetchIdx + 1 < APP.chunks.length) synthesizeChunk(APP.chunks[prefetchIdx + 1].text).then(u => { APP.audioCache[prefetchIdx + 1] = u; }).catch(() => {});
     }).catch(() => {});
   }
 }
@@ -952,6 +963,7 @@ function pause() {
   updatePlayBtn();
 }
 function stopPlayback() {
+  saveReadingPosition();
   APP.isPlaying = false;
   if (APP.audio) { APP.audio.pause(); APP.audio.src = ''; APP.audio = null; }
   if (APP.utterance) { speechSynthesis.cancel(); APP.utterance = null; }
@@ -1502,12 +1514,12 @@ function showSettings() {
       <div class="settings-group">
         <h3>Neural Voice Proxy (Required for Neural)</h3>
         <p style="font-size:13px;color:var(--text2);margin-bottom:12px;line-height:1.6">Neural voices need a free proxy. One-time setup:<br>
-        1. Go to <a href="https://workers.cloudflare.com" target="_blank">workers.cloudflare.com</a> (free, no credit card)<br>
-        2. Create account, click "Create a Worker"<br>
+        1. Go to <a href="https://dash.deno.com" target="_blank">dash.deno.com</a> (free, sign in with GitHub)<br>
+        2. Click "New Playground"<br>
         3. Paste the code from <a href="https://github.com/estebandchi/readaloud/blob/main/edge-tts-worker.js" target="_blank">edge-tts-worker.js</a><br>
-        4. Click Deploy, copy the URL below</p>
+        4. Click Save & Deploy, copy the URL below</p>
         <div style="display:flex;gap:8px">
-          <input id="proxyInput" placeholder="https://your-worker.your-name.workers.dev" value="${localStorage.getItem('readaloud_tts_proxy') || ''}" style="flex:1;font-size:13px">
+          <input id="proxyInput" placeholder="https://your-project.deno.dev" value="${localStorage.getItem('readaloud_tts_proxy') || ''}" style="flex:1;font-size:13px">
           <button onclick="saveProxy()" style="padding:10px 20px;background:var(--accent);color:#fff;border-radius:8px;font-weight:600;font-size:13px;white-space:nowrap">Save</button>
         </div>
         ${localStorage.getItem('readaloud_tts_proxy') ? `<div style="margin-top:8px;font-size:12px;color:var(--accent)">Proxy configured</div>` : `<div style="margin-top:8px;font-size:12px;color:var(--amber)">Not configured - Neural voices won't work until set up</div>`}
@@ -1596,6 +1608,81 @@ async function saveElevenLabsKey() {
     showToast('API key test failed: ' + e.message, 'error');
   }
 }
+
+/* ================================================================
+   SLEEP TIMER
+   ================================================================ */
+const SLEEP_OPTIONS = [0, 5, 10, 15, 30, 60]; // minutes, 0 = off
+let sleepTimerIdx = 0;
+let sleepTimerId = null;
+let sleepRemaining = 0;
+
+function cycleSleepTimer() {
+  sleepTimerIdx = (sleepTimerIdx + 1) % SLEEP_OPTIONS.length;
+  const mins = SLEEP_OPTIONS[sleepTimerIdx];
+  clearInterval(sleepTimerId);
+  const btn = document.getElementById('sleepBtn');
+  if (mins === 0) {
+    sleepRemaining = 0;
+    btn.classList.remove('active');
+    btn.removeAttribute('data-time');
+    btn.title = 'Sleep timer';
+    showToast('Sleep timer off', 'info');
+    return;
+  }
+  sleepRemaining = mins * 60;
+  btn.classList.add('active');
+  btn.setAttribute('data-time', mins + 'm');
+  btn.title = `Sleep in ${mins} min`;
+  showToast(`Sleep timer: ${mins} minutes`, 'info');
+  sleepTimerId = setInterval(() => {
+    sleepRemaining--;
+    if (sleepRemaining <= 0) {
+      clearInterval(sleepTimerId);
+      pause();
+      sleepTimerIdx = 0;
+      btn.classList.remove('active');
+      btn.removeAttribute('data-time');
+      btn.title = 'Sleep timer';
+      showToast('Sleep timer - playback paused', 'info', 5000);
+    } else if (sleepRemaining <= 30 && sleepRemaining % 10 === 0) {
+      // Fade hint in last 30 seconds
+      btn.setAttribute('data-time', sleepRemaining + 's');
+    } else {
+      const m = Math.ceil(sleepRemaining / 60);
+      btn.setAttribute('data-time', m + 'm');
+    }
+  }, 1000);
+}
+
+/* ================================================================
+   READING POSITION MEMORY
+   ================================================================ */
+function saveReadingPosition() {
+  if (!APP.currentDocId || !APP.totalWords) return;
+  const doc = getDoc(APP.currentDocId);
+  if (!doc) return;
+  const wordsPlayed = APP.chunkWordStarts[APP.currentChunkIdx] || 0;
+  doc.lastPosition = wordsPlayed;
+  doc.lastChunkIdx = APP.currentChunkIdx;
+  saveLibrary();
+}
+
+function restoreReadingPosition(doc) {
+  if (doc.lastChunkIdx && doc.lastChunkIdx < APP.chunks.length) {
+    APP.currentChunkIdx = doc.lastChunkIdx;
+    const wordIdx = APP.chunkWordStarts[APP.currentChunkIdx] || 0;
+    highlightWord(wordIdx);
+    updateProgressUI();
+    // Scroll to position
+    const el = document.querySelector(`.word[data-idx="${wordIdx}"]`);
+    if (el) setTimeout(() => el.scrollIntoView({ behavior: 'smooth', block: 'center' }), 300);
+    if (doc.lastChunkIdx > 0) showToast('Resumed from where you left off', 'info');
+  }
+}
+
+// Auto-save position periodically during playback
+setInterval(() => { if (APP.isPlaying) saveReadingPosition(); }, 5000);
 
 /* ================================================================
    KEYBOARD SHORTCUTS
