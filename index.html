@@ -66,6 +66,18 @@ select{cursor:pointer;appearance:none;background-image:url("data:image/svg+xml,%
 .hamburger svg{width:20px;height:20px;color:var(--text2)}
 .topbar h1{font-size:16px;font-weight:600;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .topbar-actions{display:flex;align-items:center;gap:8px}
+.search-btn{width:36px;height:36px;border-radius:8px;display:flex;align-items:center;justify-content:center;color:var(--text2);transition:var(--transition);-webkit-tap-highlight-color:transparent}
+.search-btn:hover{background:var(--bg-card);color:var(--text)}
+.search-bar{display:none;align-items:center;gap:8px;flex:1;min-width:0}
+.search-bar.active{display:flex}
+.search-bar input{padding:8px 12px;font-size:14px;border-radius:8px;flex:1;min-width:0}
+.search-bar .search-nav{display:flex;align-items:center;gap:4px;font-size:12px;color:var(--text2);white-space:nowrap}
+.search-bar .search-nav button{width:28px;height:28px;border-radius:6px;display:flex;align-items:center;justify-content:center;color:var(--text2);font-size:16px}
+.search-bar .search-nav button:hover{background:var(--bg-card);color:var(--text)}
+.search-bar .search-close{width:28px;height:28px;border-radius:6px;display:flex;align-items:center;justify-content:center;color:var(--text3);font-size:18px}
+.search-bar .search-close:hover{color:var(--text)}
+.word.search-match{background:rgba(219,166,84,.25);border-radius:3px}
+.word.search-current{background:rgba(219,166,84,.6);color:#fff;box-shadow:0 0 8px rgba(219,166,84,.3)}
 
 /* Content */
 .content{flex:1;overflow-y:auto;padding-bottom:var(--player-h)}
@@ -302,6 +314,9 @@ select{cursor:pointer;appearance:none;background-image:url("data:image/svg+xml,%
   .voice-picker::before{content:'';display:block;width:36px;height:4px;background:var(--border-light);border-radius:2px;margin:10px auto 0}
   .voice-picker-header{padding:12px 20px 16px}
   .voice-picker-item{padding:14px 12px;font-size:15px}
+  .search-bar input{padding:10px 14px;font-size:16px}
+  .search-bar .search-nav button{width:34px;height:34px;font-size:18px}
+  .search-bar .search-close{width:34px;height:34px;font-size:20px}
 }
 </style>
 </head>
@@ -332,7 +347,20 @@ select{cursor:pointer;appearance:none;background-image:url("data:image/svg+xml,%
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
       </button>
       <h1 id="topTitle">ReadAloud</h1>
-      <div class="topbar-actions" id="topActions"></div>
+      <div class="search-bar" id="searchBar">
+        <input type="text" id="searchInput" placeholder="Search text..." autocomplete="off" autocorrect="off" spellcheck="false">
+        <div class="search-nav">
+          <span id="searchCount"></span>
+          <button onclick="searchNav(-1)" aria-label="Previous match">&#8593;</button>
+          <button onclick="searchNav(1)" aria-label="Next match">&#8595;</button>
+        </div>
+        <button class="search-close" onclick="closeSearch()" aria-label="Close search">&times;</button>
+      </div>
+      <div class="topbar-actions" id="topActions">
+        <button class="search-btn" id="searchBtn" onclick="openSearch()" title="Search text" aria-label="Search text">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        </button>
+      </div>
     </header>
 
     <div class="content" id="contentArea"></div>
@@ -986,6 +1014,13 @@ async function playChunkElevenLabs(idx) {
   APP.audio.playbackRate = APP.speed;
   APP.audio.addEventListener('loadedmetadata', () => {
     setupTimings(idx, APP.audio.duration);
+    if (APP._seekToGlobalIdx != null) {
+      const localIdx = APP._seekToGlobalIdx - (APP.chunkWordStarts[idx] || 0);
+      if (localIdx > 0 && APP.wordTimings && APP.wordTimings[localIdx]) {
+        APP.audio.currentTime = APP.wordTimings[localIdx].start;
+      }
+      APP._seekToGlobalIdx = null;
+    }
     startHighlightLoop();
   });
   APP.audio.addEventListener('ended', () => {
@@ -1125,19 +1160,21 @@ function skipBack() {
     }
   }
 }
-function seekToWord(globalIdx) {
-  // Find which chunk this word belongs to
+function seekToWord(globalIdx, andPlay) {
   let targetChunk = 0;
   for (let i = 0; i < APP.chunkWordStarts.length; i++) {
     if (i + 1 < APP.chunkWordStarts.length && globalIdx >= APP.chunkWordStarts[i + 1]) continue;
     targetChunk = i; break;
   }
   APP.currentChunkIdx = targetChunk;
-  if (APP.isPlaying) {
+  APP._seekToGlobalIdx = globalIdx;
+  const shouldPlay = andPlay || APP.isPlaying;
+  if (shouldPlay) {
     if (usesAudioElement()) playChunkElevenLabs(targetChunk);
     else playChunkBrowser(targetChunk);
   } else {
     highlightWord(globalIdx);
+    updateProgressUI();
   }
 }
 // YouTube-style draggable progress bar
@@ -1178,9 +1215,8 @@ function seekToWord(globalIdx) {
     dragging = false;
     track.classList.remove('dragging');
     const pct = getPct(e.changedTouches ? e.changedTouches[0] : e);
-    const targetWord = Math.floor(pct * APP.totalWords);
-    seekToWord(targetWord);
-    if (wasPlaying) setTimeout(() => play(), 100);
+    const targetWord = Math.min(Math.floor(pct * APP.totalWords), APP.totalWords - 1);
+    seekToWord(targetWord, wasPlaying);
   }
 
   // Mouse events
@@ -1322,6 +1358,91 @@ function highlightWord(globalIdx) {
 function clearHighlights() {
   _lastHighlightIdx = -1;
   document.querySelectorAll('.word.active,.word.upcoming').forEach(el => el.classList.remove('active', 'upcoming'));
+}
+
+/* ================================================================
+   TEXT SEARCH
+   ================================================================ */
+let _searchMatches = [];
+let _searchIdx = -1;
+
+function openSearch() {
+  if (!document.getElementById('readerText')) return;
+  const bar = document.getElementById('searchBar');
+  const title = document.getElementById('topTitle');
+  const actions = document.getElementById('topActions');
+  bar.classList.add('active');
+  title.style.display = 'none';
+  actions.style.display = 'none';
+  document.getElementById('searchInput').focus();
+}
+
+function closeSearch() {
+  const bar = document.getElementById('searchBar');
+  const title = document.getElementById('topTitle');
+  const actions = document.getElementById('topActions');
+  bar.classList.remove('active');
+  title.style.display = '';
+  actions.style.display = '';
+  document.getElementById('searchInput').value = '';
+  clearSearchHighlights();
+  _searchMatches = [];
+  _searchIdx = -1;
+  document.getElementById('searchCount').textContent = '';
+}
+
+function clearSearchHighlights() {
+  document.querySelectorAll('.word.search-match,.word.search-current').forEach(el => {
+    el.classList.remove('search-match', 'search-current');
+  });
+}
+
+function doSearch(query) {
+  clearSearchHighlights();
+  _searchMatches = [];
+  _searchIdx = -1;
+  if (!query || query.length < 2) {
+    document.getElementById('searchCount').textContent = '';
+    return;
+  }
+  const q = query.toLowerCase();
+  document.querySelectorAll('.word').forEach(el => {
+    if (el.textContent.toLowerCase().includes(q)) {
+      el.classList.add('search-match');
+      _searchMatches.push(el);
+    }
+  });
+  if (_searchMatches.length) {
+    _searchIdx = 0;
+    goToSearchMatch(0);
+  }
+  document.getElementById('searchCount').textContent = _searchMatches.length ? `${_searchIdx + 1}/${_searchMatches.length}` : 'No results';
+}
+
+function goToSearchMatch(idx) {
+  _searchMatches.forEach(el => el.classList.remove('search-current'));
+  if (!_searchMatches.length) return;
+  _searchIdx = idx;
+  const el = _searchMatches[idx];
+  el.classList.add('search-current');
+  el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  document.getElementById('searchCount').textContent = `${idx + 1}/${_searchMatches.length}`;
+}
+
+function searchNav(dir) {
+  if (!_searchMatches.length) return;
+  let next = _searchIdx + dir;
+  if (next < 0) next = _searchMatches.length - 1;
+  if (next >= _searchMatches.length) next = 0;
+  goToSearchMatch(next);
+}
+
+function searchPlayFromMatch() {
+  if (!_searchMatches.length || _searchIdx < 0) return;
+  const el = _searchMatches[_searchIdx];
+  const idx = parseInt(el.dataset.idx);
+  closeSearch();
+  seekToWord(idx, true);
 }
 
 /* ================================================================
@@ -2018,10 +2139,14 @@ document.addEventListener('DOMContentLoaded', () => {
   renderSidebar();
   showWelcome();
   setupDropZone();
-  // Populate voices - Kokoro is default (free, natural)
   populateVoiceSelect();
   loadBrowserVoices();
   fetchElevenLabsVoices();
+  document.getElementById('searchInput').addEventListener('input', e => doSearch(e.target.value));
+  document.getElementById('searchInput').addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); searchPlayFromMatch(); }
+    if (e.key === 'Escape') closeSearch();
+  });
 });
 </script>
 </body>
