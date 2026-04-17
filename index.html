@@ -538,7 +538,7 @@ const APP = {
     {id:'en-AU-NatashaNeural',name:'Natasha',gender:'F',accent:'AU'},
   ],
   // Settings
-  fontSize: 18,
+  fontSize: +(localStorage.getItem('readaloud_fontSize') || 18),
   // UI
   sidebarOpen: false,
   view: 'welcome',
@@ -638,6 +638,11 @@ function openDocument(id) {
 
   // Process text
   const { html, totalWords } = renderWordsHTML(doc.text);
+  if (!totalWords) {
+    showToast('Document has no readable text', 'error');
+    document.getElementById('playerBar').classList.add('hidden');
+    return;
+  }
   APP.totalWords = totalWords;
   APP.chunks = createChunks(doc.text);
   APP.chunkWordStarts = [];
@@ -647,6 +652,8 @@ function openDocument(id) {
   APP.currentChunkIdx = 0;
 
   document.getElementById('contentArea').innerHTML = `<div class="reader"><div class="reader-text" id="readerText">${html}</div></div>`;
+  if (APP.fontSize !== 18) document.getElementById('readerText').style.fontSize = APP.fontSize + 'px';
+  cacheWordElements();
 
   // Click-to-seek on words
   document.getElementById('readerText').addEventListener('click', e => {
@@ -654,11 +661,10 @@ function openDocument(id) {
     if (w) seekToWord(parseInt(w.dataset.idx));
   });
 
-  // Manual scroll detection
+  // Manual scroll detection — only set timer once, don't re-create on every scroll event
   document.querySelector('.content').addEventListener('scroll', () => {
-    if (APP.isPlaying) {
+    if (APP.isPlaying && !APP.autoScrollPaused) {
       APP.autoScrollPaused = true;
-      clearTimeout(APP.autoScrollTimer);
       APP.autoScrollTimer = setTimeout(() => { APP.autoScrollPaused = false; }, 5000);
     }
   }, { passive: true });
@@ -947,8 +953,10 @@ async function synthesizeChunk(text) {
 }
 
 async function playChunkElevenLabs(idx) {
+  if (_isSynthesizing) return;
   let url = APP.audioCache[idx];
   if (!url) {
+    _isSynthesizing = true;
     showPlayLoading(true);
     try { url = await synthesizeChunk(APP.chunks[idx].text); }
     catch(e) {
@@ -1006,7 +1014,7 @@ async function playChunkElevenLabs(idx) {
       stopPlayback();
       return;
     }
-    finally { showPlayLoading(false); }
+    finally { _isSynthesizing = false; showPlayLoading(false); }
     APP.audioCache[idx] = url;
   }
   if (APP.audio) { APP.audio.pause(); APP.audio.src = ''; }
@@ -1090,8 +1098,9 @@ function estimateChunkDuration(chunk) {
 /* ================================================================
    PLAYBACK CONTROLS
    ================================================================ */
+let _isSynthesizing = false;
 function togglePlay() {
-  if (!APP.currentDocId || !APP.chunks.length) return;
+  if (_isSynthesizing || !APP.currentDocId || !APP.chunks.length) return;
   if (APP.isPlaying) pause();
   else play();
 }
@@ -1113,12 +1122,15 @@ function pause() {
 function stopPlayback() {
   saveReadingPosition();
   APP.isPlaying = false;
+  _isSynthesizing = false;
   if (APP.audio) { APP.audio.pause(); APP.audio.src = ''; APP.audio = null; }
   if (APP.utterance) { speechSynthesis.cancel(); APP.utterance = null; }
   cancelAnimationFrame(APP.highlightRAF);
   clearHighlights();
   updatePlayBtn();
   updateProgressUI();
+  for (const k of Object.keys(APP.audioCache)) { URL.revokeObjectURL(APP.audioCache[k]); }
+  APP.audioCache = {};
 }
 function cycleSpeed() {
   APP.speedIdx = (APP.speedIdx + 1) % SPEEDS.length;
@@ -1126,7 +1138,7 @@ function cycleSpeed() {
   document.getElementById('speedBtn').textContent = APP.speed + 'x';
   if (APP.audio) APP.audio.playbackRate = APP.speed;
   if (APP.utterance && APP.isPlaying) {
-    // Browser TTS requires restart to change rate
+    showToast('Restarting at ' + APP.speed + 'x...', 'info', 1500);
     const curChunk = APP.currentChunkIdx;
     speechSynthesis.cancel();
     playChunkBrowser(curChunk);
@@ -1227,6 +1239,13 @@ function seekToWord(globalIdx, andPlay) {
   track.addEventListener('touchstart', startDrag, { passive: false });
   document.addEventListener('touchmove', moveDrag, { passive: false });
   document.addEventListener('touchend', endDrag);
+  function cancelDrag() {
+    if (!dragging) return;
+    dragging = false;
+    track.classList.remove('dragging');
+    if (wasPlaying) play();
+  }
+  document.addEventListener('touchcancel', cancelDrag);
 })();
 function showPlayLoading(loading) {
   const btn = document.getElementById('playBtn');
@@ -1264,7 +1283,8 @@ function updateProgressUI() {
   const totalSec = (APP.totalWords / 150) * 60 / APP.speed;
   const curSec = (wordsPlayed / 150) * 60 / APP.speed;
   document.getElementById('curTime').textContent = fmtTime(curSec);
-  document.getElementById('totTime').textContent = fmtTime(totalSec);
+  const remaining = totalSec - curSec;
+  document.getElementById('totTime').textContent = remaining > 0 && APP.isPlaying ? '-' + fmtTime(remaining) : fmtTime(totalSec);
 }
 
 /* ================================================================
@@ -1330,34 +1350,51 @@ function startHighlightLoop() {
 }
 
 let _lastHighlightIdx = -1;
+let _wordEls = [];
+function cacheWordElements() {
+  _wordEls = [];
+  document.querySelectorAll('.word').forEach(el => { _wordEls[parseInt(el.dataset.idx)] = el; });
+}
 function highlightWord(globalIdx) {
+  if (globalIdx < 0 || globalIdx >= APP.totalWords) return;
   if (globalIdx === _lastHighlightIdx) return;
+  // Clear previous
+  if (_lastHighlightIdx >= 0) {
+    const prev = _wordEls[_lastHighlightIdx];
+    if (prev) prev.classList.remove('active');
+    for (let i = 1; i <= 3; i++) {
+      const old = _wordEls[_lastHighlightIdx + i];
+      if (old) old.classList.remove('upcoming');
+    }
+  }
   _lastHighlightIdx = globalIdx;
-  document.querySelectorAll('.word.active,.word.upcoming').forEach(el => el.classList.remove('active', 'upcoming'));
-  const el = document.querySelector(`.word[data-idx="${globalIdx}"]`);
+  const el = _wordEls[globalIdx];
   if (el) {
     el.classList.add('active');
     for (let i = 1; i <= 3; i++) {
-      const next = document.querySelector(`.word[data-idx="${globalIdx + i}"]`);
+      const next = _wordEls[globalIdx + i];
       if (next) next.classList.add('upcoming');
     }
-    // Auto-scroll
     if (!APP.autoScrollPaused && globalIdx - APP.lastScrollIdx >= 8) {
       APP.lastScrollIdx = globalIdx;
-      const content = document.querySelector('.content');
       const rect = el.getBoundingClientRect();
-      const cRect = content.getBoundingClientRect();
-      const midTop = cRect.top + cRect.height * 0.3;
-      const midBot = cRect.top + cRect.height * 0.7;
-      if (rect.top < midTop || rect.bottom > midBot) {
+      const vh = window.innerHeight;
+      if (rect.top < vh * 0.15 || rect.bottom > vh * 0.75) {
         el.scrollIntoView({ behavior: 'smooth', block: 'center' });
       }
     }
   }
 }
 function clearHighlights() {
+  if (_lastHighlightIdx >= 0) {
+    const prev = _wordEls[_lastHighlightIdx];
+    if (prev) prev.classList.remove('active');
+    for (let i = 1; i <= 3; i++) {
+      const old = _wordEls[_lastHighlightIdx + i];
+      if (old) old.classList.remove('upcoming');
+    }
+  }
   _lastHighlightIdx = -1;
-  document.querySelectorAll('.word.active,.word.upcoming').forEach(el => el.classList.remove('active', 'upcoming'));
 }
 
 /* ================================================================
@@ -1848,7 +1885,7 @@ function showSettings() {
         <h3>Reader</h3>
         <div class="settings-row">
           <label>Font Size: <span id="fsVal">${APP.fontSize}px</span></label>
-          <input type="range" min="14" max="28" value="${APP.fontSize}" oninput="APP.fontSize=+this.value;document.getElementById('fsVal').textContent=this.value+'px'">
+          <input type="range" min="14" max="28" value="${APP.fontSize}" oninput="APP.fontSize=+this.value;document.getElementById('fsVal').textContent=this.value+'px';var rt=document.getElementById('readerText');if(rt)rt.style.fontSize=this.value+'px';localStorage.setItem('readaloud_fontSize',this.value)">
         </div>
       </div>
       <div class="settings-group">
@@ -2208,7 +2245,11 @@ document.addEventListener('DOMContentLoaded', () => {
   populateVoiceSelect();
   loadBrowserVoices();
   fetchElevenLabsVoices();
-  document.getElementById('searchInput').addEventListener('input', e => doSearch(e.target.value));
+  let _searchDebounce;
+  document.getElementById('searchInput').addEventListener('input', e => {
+    clearTimeout(_searchDebounce);
+    _searchDebounce = setTimeout(() => doSearch(e.target.value), 120);
+  });
   document.getElementById('searchInput').addEventListener('keydown', e => {
     if (e.key === 'Enter') { e.preventDefault(); searchPlayFromMatch(); }
     if (e.key === 'Escape') closeSearch();
