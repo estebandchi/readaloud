@@ -81,8 +81,8 @@ select{cursor:pointer;appearance:none;background-image:url("data:image/svg+xml,%
 .reader-text{font-size:18px;line-height:1.9;color:var(--text)}
 .reader-text p{margin-bottom:1.2em}
 .word{border-radius:3px;padding:1px 2px;margin:-1px -2px;transition:background .12s ease}
-.word.active{background:var(--accent-strong);color:#fff}
-.word.upcoming{background:var(--accent-bg)}
+.word.active{background:rgba(20,184,166,.55);color:#fff;box-shadow:0 0 0 1px rgba(20,184,166,.3)}
+.word.upcoming{background:rgba(20,184,166,.18)}
 .word:hover{cursor:pointer;background:rgba(255,255,255,.08)}
 .reader-loading{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:80px 20px;color:var(--text2)}
 .reader-loading .spinner{width:40px;height:40px;border:3px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite;margin-bottom:16px}
@@ -90,13 +90,16 @@ select{cursor:pointer;appearance:none;background-image:url("data:image/svg+xml,%
 /* Player */
 .player-bar{position:absolute;bottom:0;left:0;right:0;height:var(--player-h);background:rgba(7,13,24,.96);backdrop-filter:blur(16px);border-top:1px solid var(--border);display:flex;flex-direction:column;z-index:50}
 .player-bar.hidden{display:none}
-.progress-track{height:4px;background:var(--bg-card);cursor:pointer;flex-shrink:0;position:relative;touch-action:none}
-.progress-track::before{content:'';position:absolute;top:-12px;bottom:-12px;left:0;right:0}
+.progress-track{height:6px;background:var(--bg-card);cursor:pointer;flex-shrink:0;position:relative;touch-action:none}
+.progress-track::before{content:'';position:absolute;top:-14px;bottom:-14px;left:0;right:0}
 .progress-fill{height:100%;background:var(--accent);width:0%;border-radius:0 2px 2px 0;position:relative;transition:none}
 .progress-fill::after{content:'';position:absolute;right:-7px;top:50%;transform:translateY(-50%) scale(0);width:14px;height:14px;background:var(--accent);border-radius:50%;transition:transform .15s ease;box-shadow:0 0 6px rgba(20,184,166,.5)}
 .progress-track:hover .progress-fill::after,.progress-track.dragging .progress-fill::after{transform:translateY(-50%) scale(1)}
-.progress-track:hover,.progress-track.dragging{height:6px}
+.player-bar.is-playing .progress-fill::after{transform:translateY(-50%) scale(1)}
+.progress-track:hover,.progress-track.dragging{height:8px}
 .progress-track.dragging .progress-fill{background:#2dd4bf}
+.progress-track.loading .progress-fill{animation:loadPulse 1.5s ease infinite}
+@keyframes loadPulse{0%,100%{opacity:.4}50%{opacity:1}}
 .player-controls{flex:1;display:flex;align-items:center;padding:0 20px;gap:12px}
 .player-left,.player-right{display:flex;align-items:center;gap:10px;min-width:140px}
 .player-right{justify-content:flex-end}
@@ -113,11 +116,25 @@ select{cursor:pointer;appearance:none;background-image:url("data:image/svg+xml,%
 .skip-btn svg{width:18px;height:18px}
 .speed-btn{padding:4px 10px;border-radius:6px;font-size:13px;font-weight:700;color:var(--accent);background:var(--accent-bg);transition:var(--transition);min-width:44px}
 .speed-btn:hover{background:var(--accent-strong)}
-.sleep-btn{width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:var(--text3);transition:var(--transition)}
+.sleep-btn{width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:var(--text3);transition:var(--transition);position:relative}
 .sleep-btn:hover{background:var(--bg-card);color:var(--text)}
 .sleep-btn.active{color:var(--amber);background:rgba(251,191,36,.12)}
-.sleep-btn.active::after{content:attr(data-time);font-size:9px;font-weight:700;position:absolute;bottom:-2px;color:var(--amber)}
+.sleep-btn.active::after{content:attr(data-time);font-size:9px;font-weight:700;position:absolute;bottom:-12px;left:50%;transform:translateX(-50%);white-space:nowrap;color:var(--amber)}
 .voice-sel{max-width:130px;font-size:12px;padding:6px 28px 6px 10px;background:var(--bg-card);border-color:var(--border)}
+.voice-btn-mobile{display:none;width:36px;height:36px;border-radius:50%;align-items:center;justify-content:center;color:var(--text3);transition:var(--transition)}
+.voice-btn-mobile:hover{background:var(--bg-card);color:var(--text)}
+
+/* Voice Picker (mobile bottom sheet) */
+.voice-picker-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:300;align-items:flex-end;justify-content:center}
+.voice-picker-overlay.show{display:flex}
+.voice-picker{background:var(--bg);border:1px solid var(--border);border-radius:16px 16px 0 0;width:100%;max-width:480px;max-height:60vh;display:flex;flex-direction:column;padding-bottom:env(safe-area-inset-bottom,20px)}
+.voice-picker-header{display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid var(--border)}
+.voice-picker-header h3{font-size:16px;font-weight:700}
+.voice-picker-list{overflow-y:auto;padding:8px 12px}
+.voice-picker-item{display:flex;align-items:center;gap:12px;padding:12px;border-radius:8px;cursor:pointer;transition:var(--transition);font-size:14px}
+.voice-picker-item:hover,.voice-picker-item.active{background:var(--bg-card)}
+.voice-picker-item.active{color:var(--accent)}
+.voice-picker-group{font-size:12px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;padding:12px 12px 4px}
 
 /* Import Modal */
 .modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:200;align-items:center;justify-content:center;padding:20px}
@@ -211,24 +228,26 @@ select{cursor:pointer;appearance:none;background-image:url("data:image/svg+xml,%
   .settings-row label{font-size:15px}
   .topbar{height:52px;min-height:52px;padding:0 16px}
 
-  /* Player bar - completely redesigned for mobile */
-  .player-bar{height:auto;padding-bottom:34px}
-  .content{padding-bottom:160px}
-  .player-controls{flex-wrap:wrap;padding:8px 16px 4px;gap:0}
+  /* Player bar - mobile layout */
+  .player-bar{height:auto;padding-bottom:max(20px,env(safe-area-inset-bottom))}
+  .content{padding-bottom:140px}
+  .player-controls{flex-wrap:wrap;padding:6px 16px 4px;gap:0}
   .player-left{order:2;min-width:auto;flex:0}
-  .player-center{order:1;width:100%;flex:unset;justify-content:center;gap:20px;padding:8px 0 10px}
-  .player-right{order:3;min-width:auto;flex:1;justify-content:flex-end;gap:12px}
-  .play-btn{width:64px;height:64px}
-  .play-btn svg{width:28px;height:28px}
-  .skip-btn{width:48px;height:48px}
-  .skip-btn svg{width:24px;height:24px}
-  .speed-btn{font-size:15px;padding:8px 14px;min-width:50px}
-  .time-label{font-size:13px;min-width:40px}
+  .player-center{order:1;width:100%;flex:unset;justify-content:center;gap:16px;padding:6px 0 8px}
+  .player-right{order:3;min-width:auto;flex:1;justify-content:flex-end;gap:8px}
+  .play-btn{width:56px;height:56px}
+  .play-btn svg{width:26px;height:26px}
+  .skip-btn{width:44px;height:44px}
+  .skip-btn svg{width:22px;height:22px}
+  .speed-btn{font-size:14px;padding:6px 12px;min-width:46px}
+  .time-label{font-size:13px;min-width:38px}
   .voice-sel{display:none}
-  .progress-track{height:6px}
-  .progress-track::before{top:-16px;bottom:-16px}
-  .progress-fill::after{width:18px;height:18px;right:-9px}
-  .progress-track:hover,.progress-track.dragging{height:8px}
+  .voice-btn-mobile{display:flex}
+  .lib-delete{opacity:.6;width:32px;height:32px;font-size:18px}
+  .progress-track{height:8px}
+  .progress-track::before{top:-18px;bottom:-18px}
+  .progress-fill::after{width:20px;height:20px;right:-10px}
+  .progress-track:hover,.progress-track.dragging{height:10px}
 }
 </style>
 </head>
@@ -273,22 +292,25 @@ select{cursor:pointer;appearance:none;background-image:url("data:image/svg+xml,%
           <span class="time-label" id="curTime">0:00</span>
         </div>
         <div class="player-center">
-          <button class="skip-btn" onclick="skipBack()" title="Previous sentence">
+          <button class="skip-btn" onclick="skipBack()" title="Previous sentence" aria-label="Previous sentence">
             <svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg>
           </button>
-          <button class="play-btn" id="playBtn" onclick="togglePlay()" disabled title="Play">
+          <button class="play-btn" id="playBtn" onclick="togglePlay()" disabled title="Play" aria-label="Play">
             <svg id="playIcon" viewBox="0 0 24 24" fill="currentColor"><polygon points="6,3 20,12 6,21"/></svg>
           </button>
-          <button class="skip-btn" onclick="skipForward()" title="Next sentence">
+          <button class="skip-btn" onclick="skipForward()" title="Next sentence" aria-label="Next sentence">
             <svg viewBox="0 0 24 24" fill="currentColor"><path d="M16 18h2V6h-2zM6 18l8.5-6L6 6z"/></svg>
           </button>
         </div>
         <div class="player-right">
-          <button class="speed-btn" id="speedBtn" onclick="cycleSpeed()" title="Playback speed">1x</button>
-          <button class="sleep-btn" id="sleepBtn" onclick="cycleSleepTimer()" title="Sleep timer">
+          <button class="speed-btn" id="speedBtn" onclick="cycleSpeed()" title="Playback speed" aria-label="Playback speed">1x</button>
+          <button class="sleep-btn" id="sleepBtn" onclick="cycleSleepTimer()" title="Sleep timer" aria-label="Sleep timer">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
           </button>
-          <select class="voice-sel" id="voiceSelect" onchange="onVoiceChange(this.value)" title="Voice"></select>
+          <button class="voice-btn-mobile" id="voiceBtnMobile" onclick="showVoicePicker()" title="Change voice" aria-label="Change voice">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+          </button>
+          <select class="voice-sel" id="voiceSelect" onchange="onVoiceChange(this.value)" title="Voice" aria-label="Voice selection"></select>
           <span class="time-label right" id="totTime">0:00</span>
         </div>
       </div>
@@ -353,7 +375,16 @@ select{cursor:pointer;appearance:none;background-image:url("data:image/svg+xml,%
   </div>
 </div>
 
-<div id="toasts"></div>
+<div id="toasts" role="status" aria-live="polite"></div>
+<div class="voice-picker-overlay" id="voicePickerOverlay" onclick="closeVoicePicker()">
+  <div class="voice-picker" onclick="event.stopPropagation()">
+    <div class="voice-picker-header">
+      <h3>Choose Voice</h3>
+      <button onclick="closeVoicePicker()" style="font-size:20px;color:var(--text3)" aria-label="Close">&times;</button>
+    </div>
+    <div class="voice-picker-list" id="voicePickerList"></div>
+  </div>
+</div>
 
 <script>
 /* ================================================================
@@ -699,7 +730,7 @@ function populateVoiceSelect() {
   const sel = document.getElementById('voiceSelect');
   sel.innerHTML = '';
   // Edge TTS (Microsoft free neural voices - best default)
-  if (APP.ttsEngine === 'edge' || true) {
+  if (APP.edgeVoices.length) {
     const optE = document.createElement('optgroup');
     optE.label = 'Neural (Free)';
     APP.edgeVoices.forEach(v => {
@@ -711,7 +742,7 @@ function populateVoiceSelect() {
     sel.appendChild(optE);
   }
   // Kokoro AI voices (free, local - desktop only)
-  if (APP.ttsEngine === 'kokoro' || APP.kokoroReady) {
+  if (APP.kokoroVoices.length) {
     const optK = document.createElement('optgroup');
     optK.label = 'Kokoro AI (Desktop)';
     APP.kokoroVoices.forEach(v => {
@@ -747,10 +778,8 @@ function populateVoiceSelect() {
     });
     sel.appendChild(optB);
   }
-  // Restore selection - but only if the saved voice matches the current engine
   const saved = localStorage.getItem('readaloud_voice');
-  const enginePrefix = { edge: 'edge:', kokoro: 'ko:', elevenlabs: 'el:', browser: 'br:' }[APP.ttsEngine] || '';
-  if (saved && saved.startsWith(enginePrefix) && sel.querySelector(`option[value="${saved}"]`)) {
+  if (saved && sel.querySelector(`option[value="${CSS.escape(saved)}"]`)) {
     sel.value = saved;
   } else if (sel.options.length) {
     sel.selectedIndex = 0;
@@ -766,6 +795,30 @@ function onVoiceChange(val) {
   else if (val.startsWith('ko:')) { APP.ttsEngine = 'kokoro'; localStorage.setItem('readaloud_engine', 'kokoro'); }
   else if (val.startsWith('el:')) { APP.ttsEngine = 'elevenlabs'; localStorage.setItem('readaloud_engine', 'elevenlabs'); }
   else if (val.startsWith('br:')) { APP.ttsEngine = 'browser'; localStorage.setItem('readaloud_engine', 'browser'); }
+}
+
+/* Mobile Voice Picker */
+function showVoicePicker() {
+  const list = document.getElementById('voicePickerList');
+  const sel = document.getElementById('voiceSelect');
+  let html = '';
+  for (const child of sel.children) {
+    if (child.tagName === 'OPTGROUP') {
+      html += `<div class="voice-picker-group">${esc(child.label)}</div>`;
+      for (const opt of child.children) {
+        const active = opt.value === APP.selectedVoiceId ? ' active' : '';
+        html += `<div class="voice-picker-item${active}" onclick="pickVoice('${esc(opt.value)}')">${esc(opt.textContent)}${active ? ' <span style="margin-left:auto;font-size:14px;color:var(--accent)">&#10003;</span>' : ''}</div>`;
+      }
+    }
+  }
+  list.innerHTML = html;
+  document.getElementById('voicePickerOverlay').classList.add('show');
+}
+function closeVoicePicker() { document.getElementById('voicePickerOverlay').classList.remove('show'); }
+function pickVoice(val) {
+  document.getElementById('voiceSelect').value = val;
+  onVoiceChange(val);
+  closeVoicePicker();
 }
 
 /* ================================================================
@@ -885,13 +938,19 @@ async function playChunkElevenLabs(idx) {
     if (idx + 1 < APP.chunks.length) { APP.currentChunkIdx = idx + 1; playChunkElevenLabs(idx + 1); }
     else stopPlayback();
   });
-  await APP.audio.play();
+  try { await APP.audio.play(); }
+  catch (e) {
+    showToast('Tap play again (browser blocked autoplay)', 'info');
+    APP.isPlaying = false;
+    updatePlayBtn();
+    return;
+  }
   APP.isPlaying = true;
   APP.currentChunkIdx = idx;
   updatePlayBtn();
-  // Prefetch next
+  pruneAudioCache(idx);
   if (idx + 1 < APP.chunks.length && !APP.audioCache[idx + 1]) {
-    synthesizeChunk(APP.chunks[idx + 1].text).then(u => { APP.audioCache[idx + 1] = u; }).catch(() => {});
+    synthesizeChunk(APP.chunks[idx + 1].text).then(u => { APP.audioCache[idx + 1] = u; pruneAudioCache(idx); }).catch(() => {});
   }
 }
 
@@ -1081,17 +1140,28 @@ function seekToWord(globalIdx) {
 })();
 function showPlayLoading(loading) {
   const btn = document.getElementById('playBtn');
-  if (loading) btn.innerHTML = '<div class="spinner" style="width:22px;height:22px;border:2px solid rgba(255,255,255,.3);border-top-color:#fff;border-radius:50%;animation:spin .8s linear infinite"></div>';
-  else updatePlayBtn();
+  const track = document.getElementById('progressTrack');
+  if (loading) {
+    btn.innerHTML = '<div class="spinner" style="width:22px;height:22px;border:2px solid rgba(255,255,255,.3);border-top-color:#fff;border-radius:50%;animation:spin .8s linear infinite"></div>';
+    track.classList.add('loading');
+  } else {
+    track.classList.remove('loading');
+    updatePlayBtn();
+  }
 }
 function updatePlayBtn() {
   const btn = document.getElementById('playBtn');
+  const bar = document.getElementById('playerBar');
   if (APP.isPlaying) {
     btn.classList.add('playing');
+    btn.setAttribute('aria-label', 'Pause');
     btn.innerHTML = '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></svg>';
+    bar.classList.add('is-playing');
   } else {
     btn.classList.remove('playing');
+    btn.setAttribute('aria-label', 'Play');
     btn.innerHTML = '<svg viewBox="0 0 24 24" fill="currentColor"><polygon points="6,3 20,12 6,21"/></svg>';
+    bar.classList.remove('is-playing');
   }
 }
 function updateProgressUI() {
@@ -1700,6 +1770,14 @@ document.addEventListener('keydown', e => {
 /* ================================================================
    UTILITIES
    ================================================================ */
+function pruneAudioCache(currentIdx) {
+  const keep = new Set();
+  for (let i = currentIdx - 1; i <= currentIdx + 2; i++) keep.add(i);
+  for (const k of Object.keys(APP.audioCache)) {
+    const n = Number(k);
+    if (!keep.has(n)) { URL.revokeObjectURL(APP.audioCache[n]); delete APP.audioCache[n]; }
+  }
+}
 function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
 function fmtTime(sec) {
   if (!sec || !isFinite(sec)) return '0:00';
@@ -1715,10 +1793,12 @@ function timeAgo(ts) {
   return new Date(ts).toLocaleDateString();
 }
 function showToast(msg, type = 'info', duration = 3000) {
+  const container = document.getElementById('toasts');
+  while (container.children.length >= 3) container.removeChild(container.firstChild);
   const t = document.createElement('div');
   t.className = 'toast toast-' + type;
   t.textContent = msg;
-  document.getElementById('toasts').appendChild(t);
+  container.appendChild(t);
   setTimeout(() => t.classList.add('show'), 10);
   setTimeout(() => { t.classList.remove('show'); setTimeout(() => t.remove(), 300); }, duration);
 }
