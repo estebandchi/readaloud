@@ -90,8 +90,13 @@ select{cursor:pointer;appearance:none;background-image:url("data:image/svg+xml,%
 /* Player */
 .player-bar{position:absolute;bottom:0;left:0;right:0;height:var(--player-h);background:rgba(7,13,24,.96);backdrop-filter:blur(16px);border-top:1px solid var(--border);display:flex;flex-direction:column;z-index:50}
 .player-bar.hidden{display:none}
-.progress-track{height:4px;background:var(--bg-card);cursor:pointer;flex-shrink:0}
-.progress-fill{height:100%;background:var(--accent);width:0%;transition:width .3s linear;border-radius:0 2px 2px 0}
+.progress-track{height:4px;background:var(--bg-card);cursor:pointer;flex-shrink:0;position:relative;touch-action:none}
+.progress-track::before{content:'';position:absolute;top:-12px;bottom:-12px;left:0;right:0}
+.progress-fill{height:100%;background:var(--accent);width:0%;border-radius:0 2px 2px 0;position:relative;transition:none}
+.progress-fill::after{content:'';position:absolute;right:-7px;top:50%;transform:translateY(-50%) scale(0);width:14px;height:14px;background:var(--accent);border-radius:50%;transition:transform .15s ease;box-shadow:0 0 6px rgba(20,184,166,.5)}
+.progress-track:hover .progress-fill::after,.progress-track.dragging .progress-fill::after{transform:translateY(-50%) scale(1)}
+.progress-track:hover,.progress-track.dragging{height:6px}
+.progress-track.dragging .progress-fill{background:#2dd4bf}
 .player-controls{flex:1;display:flex;align-items:center;padding:0 20px;gap:12px}
 .player-left,.player-right{display:flex;align-items:center;gap:10px;min-width:140px}
 .player-right{justify-content:flex-end}
@@ -217,6 +222,9 @@ select{cursor:pointer;appearance:none;background-image:url("data:image/svg+xml,%
   .time-label{font-size:13px;min-width:40px}
   .voice-sel{display:none}
   .progress-track{height:6px}
+  .progress-track::before{top:-16px;bottom:-16px}
+  .progress-fill::after{width:18px;height:18px;right:-9px}
+  .progress-track:hover,.progress-track.dragging{height:8px}
 }
 </style>
 </head>
@@ -253,7 +261,7 @@ select{cursor:pointer;appearance:none;background-image:url("data:image/svg+xml,%
     <div class="content" id="contentArea"></div>
 
     <div class="player-bar hidden" id="playerBar">
-      <div class="progress-track" id="progressTrack" onclick="seekFromProgress(event)">
+      <div class="progress-track" id="progressTrack">
         <div class="progress-fill" id="progressFill"></div>
       </div>
       <div class="player-controls">
@@ -728,9 +736,14 @@ function populateVoiceSelect() {
     });
     sel.appendChild(optB);
   }
-  // Restore selection
+  // Restore selection - but only if the saved voice matches the current engine
   const saved = localStorage.getItem('readaloud_voice');
-  if (saved && sel.querySelector(`option[value="${saved}"]`)) sel.value = saved;
+  const enginePrefix = { edge: 'edge:', kokoro: 'ko:', elevenlabs: 'el:', browser: 'br:' }[APP.ttsEngine] || '';
+  if (saved && saved.startsWith(enginePrefix) && sel.querySelector(`option[value="${saved}"]`)) {
+    sel.value = saved;
+  } else if (sel.options.length) {
+    sel.selectedIndex = 0;
+  }
   APP.selectedVoiceId = sel.value;
 }
 
@@ -1002,12 +1015,58 @@ function seekToWord(globalIdx) {
     highlightWord(globalIdx);
   }
 }
-function seekFromProgress(e) {
-  const rect = e.currentTarget.getBoundingClientRect();
-  const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-  const targetWord = Math.floor(pct * APP.totalWords);
-  seekToWord(targetWord);
-}
+// YouTube-style draggable progress bar
+(function() {
+  const track = document.getElementById('progressTrack');
+  const fill = document.getElementById('progressFill');
+  let dragging = false;
+  let wasPlaying = false;
+
+  function getPct(e) {
+    const rect = track.getBoundingClientRect();
+    const x = (e.touches ? e.touches[0].clientX : e.clientX);
+    return Math.max(0, Math.min(1, (x - rect.left) / rect.width));
+  }
+
+  function scrub(pct) {
+    fill.style.width = (pct * 100) + '%';
+  }
+
+  function startDrag(e) {
+    if (!APP.totalWords) return;
+    dragging = true;
+    wasPlaying = APP.isPlaying;
+    if (APP.isPlaying) pause();
+    track.classList.add('dragging');
+    scrub(getPct(e));
+    e.preventDefault();
+  }
+
+  function moveDrag(e) {
+    if (!dragging) return;
+    scrub(getPct(e));
+    e.preventDefault();
+  }
+
+  function endDrag(e) {
+    if (!dragging) return;
+    dragging = false;
+    track.classList.remove('dragging');
+    const pct = getPct(e.changedTouches ? e.changedTouches[0] : e);
+    const targetWord = Math.floor(pct * APP.totalWords);
+    seekToWord(targetWord);
+    if (wasPlaying) setTimeout(() => play(), 100);
+  }
+
+  // Mouse events
+  track.addEventListener('mousedown', startDrag);
+  document.addEventListener('mousemove', moveDrag);
+  document.addEventListener('mouseup', endDrag);
+  // Touch events
+  track.addEventListener('touchstart', startDrag, { passive: false });
+  document.addEventListener('touchmove', moveDrag, { passive: false });
+  document.addEventListener('touchend', endDrag);
+})();
 function showPlayLoading(loading) {
   const btn = document.getElementById('playBtn');
   if (loading) btn.innerHTML = '<div class="spinner" style="width:22px;height:22px;border:2px solid rgba(255,255,255,.3);border-top-color:#fff;border-radius:50%;animation:spin .8s linear infinite"></div>';
@@ -1027,7 +1086,9 @@ function updateProgressUI() {
   if (!APP.totalWords) return;
   const wordsPlayed = APP.chunkWordStarts[APP.currentChunkIdx] || 0;
   const pct = (wordsPlayed / APP.totalWords) * 100;
-  document.getElementById('progressFill').style.width = pct + '%';
+  if (!document.getElementById('progressTrack').classList.contains('dragging')) {
+    document.getElementById('progressFill').style.width = pct + '%';
+  }
   const totalSec = (APP.totalWords / 150) * 60 / APP.speed;
   const curSec = (wordsPlayed / 150) * 60 / APP.speed;
   document.getElementById('curTime').textContent = fmtTime(curSec);
@@ -1083,7 +1144,9 @@ function startHighlightLoop() {
     let chunkProgress = 0;
     if (APP.audio && APP.audio.duration) chunkProgress = APP.audio.currentTime / APP.audio.duration;
     const totalPct = ((wordsPlayed + chunkProgress * (APP.chunks[APP.currentChunkIdx]?.wordCount || 0)) / APP.totalWords) * 100;
-    document.getElementById('progressFill').style.width = Math.min(100, totalPct) + '%';
+    if (!document.getElementById('progressTrack').classList.contains('dragging')) {
+      document.getElementById('progressFill').style.width = Math.min(100, totalPct) + '%';
+    }
     const totalSec = (APP.totalWords / 150) * 60 / APP.speed;
     const curWords = wordsPlayed + chunkProgress * (APP.chunks[APP.currentChunkIdx]?.wordCount || 0);
     document.getElementById('curTime').textContent = fmtTime((curWords / 150) * 60 / APP.speed);
